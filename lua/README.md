@@ -15,7 +15,11 @@ This interface **replaces the conversation path only**. The LSL HUD is still nee
 
 ## Important — Agent's Viewer Only
 
-This script must be installed on **the agent's viewer** (the viewer logged in as Trixxie's avatar). Do **not** install it on your own viewer. If you run `automation.lua` on your viewer, your viewer will forward Trixxie's outgoing IMs back to the bridge — triggering a second inference call for each reply and producing a hallucination loop that spirals until you stop the script.
+This script must be installed on **the agent's viewer** (the viewer logged in as Trixxie's avatar). Do **not** install it on your own viewer. If you run `automation.lua` on your viewer, your viewer will forward Trixxie's outgoing IMs back to the bridge — triggering a second inference call for each reply and producing a hallucination loop that spirals until you stop the script (often crashing the server with a rate limit error).
+
+> **⚠️ Running both viewers on the same PC?**
+> Cool VL Viewer shares the `user_settings` folder across all instances. If you use **Option 1** below (renaming the file to `automation.lua`), *both* your viewer and Trixxie's viewer will load the AI script, immediately causing the infinite reply loop. 
+> **The Fix:** Delete `automation.lua` from your `user_settings` folder completely, and use **Option 2** to load the script manually *only* on Trixxie's viewer.
 
 ---
 
@@ -23,7 +27,7 @@ This script must be installed on **the agent's viewer** (the viewer logged in as
 
 `lua/agent_companion.lua` is generated automatically by `./run.sh` with your credentials already filled in from `.env`. You do not need to edit it manually.
 
-**Option 1 — Copy the file (recommended)**
+**Option 1 — Copy the file (recommended for separate PCs)**
 
 Copy `lua/agent_companion.lua` to the Cool VL Viewer user settings folder and rename it `automation.lua`:
 
@@ -35,7 +39,7 @@ Copy `lua/agent_companion.lua` to the Cool VL Viewer user settings folder and re
 
 This is the preferred method because it ensures the viewer loads the script automatically on startup. You will need to re-copy the file any time the script is updated by `./run.sh`.
 
-**Option 2 — Point Cool VL Viewer directly at the file**
+**Option 2 — Point Cool VL Viewer directly at the file (required for same-PC setups)**
 
 Cool VL Viewer has a built-in file selector for the automation script. Use it to select `lua/agent_companion.lua` from your companion-agent install folder. Note: If you point to a different script rather than the default `automation.lua` path, you must manually load that script every time the viewer runs.
 
@@ -111,6 +115,9 @@ Cool VL Viewer's `PostHTTP` cannot send custom HTTP headers, so the secret is in
 
 **"Authentication failed." reply:**
 - Confirm `SECRET` in the Lua script matches `SL_BRIDGE_SECRET` in `.env`.
+
+**Agent gets stuck in an infinite reply loop or returns errors instantly:**
+- You are likely running both viewers on the same PC and your personal viewer loaded the script by mistake. Delete `automation.lua` from your `user_settings` folder and use **Option 2** for the agent's viewer instead.
 
 **Replies cut off mid-sentence:**
 - The chunker breaks at sentence boundaries. If replies are still truncating, the `REPLY_HARD_CAP` on the server (4000 chars for SL, 1800 for OpenSim) may be too low for the conversation style — adjust in `interfaces/sl_bridge/formatters.py`.

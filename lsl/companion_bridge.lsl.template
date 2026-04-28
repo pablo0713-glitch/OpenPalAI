@@ -593,7 +593,7 @@ default
         tick++;
 
         // Memory watchdog — reset before a stack/heap collision silently kills the script
-        if (llGetFreeMemory() < 8000)
+        if (llGetFreeMemory() < 16000)
         {
             llOwnerSay("HUD memory low — resetting.");
             llResetScript();
@@ -673,6 +673,9 @@ default
         // ── Local chat: buffer + name-trigger response ──
         if (channel == 0)
         {
+            // Ignore the HUD itself so it doesn't buffer its own replies
+            if (id == llGetID()) return;
+
             // Always buffer for sensor context
             if (s_chat)
             {

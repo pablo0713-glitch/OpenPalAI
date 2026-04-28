@@ -23,11 +23,7 @@ This script must be installed on **the agent's viewer** (the viewer logged in as
 
 `lua/agent_companion.lua` is generated automatically by `./run.sh` with your credentials already filled in from `.env`. You do not need to edit it manually.
 
-**Option 1 — Point Cool VL Viewer directly at the file (recommended)**
-
-Cool VL Viewer has a built-in file selector for the automation script. Use it to select `lua/agent_companion.lua` from your companion-agent install folder. The viewer saves that path and loads the file from it every time. When the script is updated by `./run.sh`, reload it instantly with **Advanced → Lua scripting → Re-load current automation script** — nothing else to do.
-
-**Option 2 — Copy the file**
+**Option 1 — Copy the file (recommended)**
 
 Copy `lua/agent_companion.lua` to the Cool VL Viewer user settings folder and rename it `automation.lua`:
 
@@ -37,7 +33,11 @@ Copy `lua/agent_companion.lua` to the Cool VL Viewer user settings folder and re
 | Windows | `&#37;APPDATA&#37;\SecondLife\user_settings\automation.lua` |
 | macOS | `~/Library/Application Support/SecondLife/user_settings/automation.lua` |
 
-You will need to re-copy the file any time the script is updated by `./run.sh`.
+This is the preferred method because it ensures the viewer loads the script automatically on startup. You will need to re-copy the file any time the script is updated by `./run.sh`.
+
+**Option 2 — Point Cool VL Viewer directly at the file**
+
+Cool VL Viewer has a built-in file selector for the automation script. Use it to select `lua/agent_companion.lua` from your companion-agent install folder. Note: If you point to a different script rather than the default `automation.lua` path, you must manually load that script every time the viewer runs.
 
 ---
 

@@ -593,7 +593,7 @@ default
         tick++;
 
         // Memory watchdog — reset before a stack/heap collision silently kills the script
-        if (llGetFreeMemory() < 16000)
+        if (llGetFreeMemory() < 10000)
         {
             llOwnerSay("HUD memory low — resetting.");
             llResetScript();

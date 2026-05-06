@@ -32,12 +32,12 @@ integer RLV_TICKS  = 1;    // RLV state every    1 tick  =   30s
 integer s_avatars = TRUE;
 integer s_chat    = TRUE;
 integer s_env     = TRUE;
-integer s_objects = TRUE;
+integer s_objects = FALSE;
 integer s_rlv     = TRUE;
 integer s_voice   = FALSE;  // enables /sl/voice endpoint on the server; stub until voice model configured
 // s_stream = TRUE  → sensors POST on independent timers (continuous)
 // s_stream = FALSE → sensors POST only when a /42 message is sent
-integer s_stream  = TRUE;
+integer s_stream  = FALSE;
 
 // --- Avatar scan: returns the closest avatars in the region (hard cap) ---
 integer AV_MAX      = 25;

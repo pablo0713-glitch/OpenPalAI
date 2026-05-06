@@ -19,6 +19,15 @@ integer UI_CHANNEL     = -7654321;  // private dialog channel
 integer CHAT_BUF_SIZE  = 10;        // ambient chat lines to buffer
 list    TRIGGER_NAMES  = ["Primary", "Alias1", "Alias2"]; // names/aliases that trigger a local chat response
 
+// --- Sensor Intervals (Streaming Mode) ---
+// Increase these multipliers to slow down streaming and conserve HUD memory
+float   TICK_SECS  = 30.0; // The base timer tick duration in seconds
+integer AV_TICKS   = 2;    // avatar scan every  2 ticks =   60s
+integer OBJ_TICKS  = 10;   // object scan every 10 ticks =  300s
+integer ENV_TICKS  = 20;   // env scan every    20 ticks =  600s
+integer CHAT_TICKS = 3;    // chat flush every   3 ticks =   90s
+integer RLV_TICKS  = 1;    // RLV state every    1 tick  =   30s
+
 // --- Sensor toggles ---
 integer s_avatars = TRUE;
 integer s_chat    = TRUE;
@@ -33,14 +42,8 @@ integer s_stream  = TRUE;
 // --- Avatar scan: returns the closest avatars in the region (hard cap) ---
 integer AV_MAX      = 25;
 
-// --- Timer ---
-float   TICK_SECS  = 30.0;
+// --- Timer State ---
 integer tick       = 0;
-integer AV_TICKS   = 2;    // avatar scan every  2 ticks =   60s
-integer OBJ_TICKS  = 10;   // object scan every 10 ticks =  300s
-integer ENV_TICKS  = 20;   // env scan every    20 ticks =  600s (time-of-day drift)
-integer CHAT_TICKS = 3;    // chat flush every   3 ticks =   90s
-integer RLV_TICKS  = 1;    // RLV state every    1 tick  =   30s
 
 // --- Region/parcel tracking (env scan fires on region OR parcel change) ---
 string  last_region  = "";

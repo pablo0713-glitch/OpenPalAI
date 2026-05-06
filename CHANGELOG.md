@@ -35,6 +35,8 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ### Added
 
+- **LSL user-configurable time intervals** — Stream mode sensor intervals (`AV_TICKS`, `OBJ_TICKS`, `ENV_TICKS`, `CHAT_TICKS`, `RLV_TICKS`) were moved to the top of the LSL script config section. This is a QoL customization option to help manage data overhead until v2.0 solves the blind resend logic that contributes to "HUD memory low" resets.
+
 - **`GET /setup/scripts` endpoint** (`interfaces/setup_server.py`) — Returns the patched LSL and Lua script content plus an `updated_on_startup` boolean flag. Used by `bindStep7()` to fetch scripts without exposing them in the initial page HTML.
 
 - **Wizard Step 7 — Copy and Save buttons for LSL and Lua scripts** — Step 7 fetches both scripts from `/setup/scripts` and holds their content in memory only (never written to the DOM). Two buttons per script: **Copy** sends the full content to the clipboard; **Save** triggers a browser download with the correct filename. Useful for recovering a lost HUD or installing the Lua script from the settings page without a terminal. Script content is never visible in the page source or browser inspector.

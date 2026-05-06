@@ -472,6 +472,10 @@ companion-agent/
 **Garbled characters in SL replies:**
 - LSL cannot handle 4-byte UTF-8 (emoji, some Unicode). The bridge strips these before delivery. If you still see garbled bytes, check that `interfaces/sl_bridge/formatters.py` is up to date.
 
+**LSL memory low — resetting (SL local chat):**
+- **Known v1.x Limitation**: Crowded sims (lots of objects/avatars) bloat memory when the HUD generates JSON payloads. Currently, the HUD blindly resends sensor data at intervals even if nothing has changed, which consumes memory and processing power.
+- **Workaround:** Click the HUD and disable `Objects` or `Avatars` sensors in busy regions. This inefficient data broadcasting will be fixed and optimized in version 2.0.
+
 **Agent makes up conversation history:**
 - This shouldn't happen — the system prompt instructs the agent to use `session_search` before claiming it doesn't recall something
 - If it persists, check `data/memory/sl_{uuid}/sl_42.json` for hallucinated turns and delete them

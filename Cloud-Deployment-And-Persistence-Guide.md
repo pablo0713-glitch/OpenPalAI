@@ -134,6 +134,11 @@ If you have a static VPS IP (e.g., `123.456.789.012`) and no domain:
             proxy_http_version 1.1;
             proxy_set_header Connection "";
             proxy_buffering off; # Required for Debug Page logs
+            
+            # Increase timeouts to prevent Nginx from dropping long LLM inference calls
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 300s;
+            proxy_send_timeout 300s;
         }
     }
     ```
@@ -151,3 +156,7 @@ If you have a static VPS IP (e.g., `123.456.789.012`) and no domain:
 |---|---|---|
 |**SELinux Blocking**|Nginx log: `(13: Permission denied) while connecting to upstream`|`sudo setsebool -P httpd_can_network_connect 1`|
 |**Port Conflict**|`bind() to 0.0.0.0:80 failed (98: Address already in use)`|`sudo pkill -9 nginx` then `sudo systemctl start nginx`|
+|**Missing Service User**|`status=217/USER` or `Failed at step USER` in `journalctl`|Edit `/etc/systemd/system/trixxie.service` and replace `User=your-user` with your actual Linux username (run `whoami`). Run `sudo systemctl daemon-reload`.|
+|**Service Permissions**|`status=203/EXEC` and `Permission denied` in `journalctl`|Give systemd access to your home directory: `chmod +x /home/your-user` and `chmod +x /home/your-user/trixxie-companion-agent`. If using SELinux: `sudo chcon -R -t bin_t /home/your-user/trixxie-companion-agent/.venv/bin/`|
+|**Nginx 60s Timeout**|SL IM replies: `Something went sideways` after exactly 60 seconds|Nginx is dropping the LLM request. Add `proxy_read_timeout 300s; proxy_connect_timeout 300s; proxy_send_timeout 300s;` to the `location /` block in your `trixxie.conf`, then restart Nginx.|
+|**Lua Script Old URL**|SL IM replies: `Something went sideways` instantly, but server log shows `POST /sl/sensor` 200 OK|Your SL viewer's local `automation.lua` is trying to hit an old or `localhost` URL. Update `SERVER_URL` in `user_settings/automation.lua` on your physical PC to match the remote server's address, and ensure `SECRET` matches `SL_BRIDGE_SECRET`.|

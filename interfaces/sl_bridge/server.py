@@ -45,6 +45,7 @@ class SLSensorPayload(BaseModel):
     region: str
     data: Any           # varies by type
     user_id: str = ""
+    secret: str = ""
 
 
 class SLOutboundResponse(BaseModel):
@@ -113,7 +114,8 @@ def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStor
 
     @app.post("/sl/sensor")
     async def sl_sensor(request: Request, payload: SLSensorPayload) -> dict:
-        secret = request.headers.get("X-SL-Secret", "")
+        header_secret = request.headers.get("X-SL-Secret", "")
+        secret = header_secret or payload.secret
         if settings.sl_bridge_secret and secret != settings.sl_bridge_secret:
             return {"status": "unauthorized"}
 

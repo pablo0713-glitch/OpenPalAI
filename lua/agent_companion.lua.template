@@ -11,12 +11,12 @@
 -- ================================================================
 
 -- --- Config ---
-local SERVER_URL    = "YOUR_TUNNEL_URL"
-local SECRET        = "YOUR_BRIDGE_SECRET"
+local SERVER_URL    = "https://155.138.223.115.nip.io"
+local SECRET        = "h1th3r3!"
 local GRID          = "sl"       -- "sl" or "opensim"
 local IM_CHUNK_SIZE = 1000       -- max chars per SendIM call
 local CHAT_BUF_SIZE = 10         -- ambient chat lines to buffer
-local TRIGGER_NAMES = {"Primary", "Alias1", "Alias2"} -- names/aliases that trigger a local chat response
+local TRIGGER_NAMES = {"Dank", "Nuggs", "mojofryin"} -- names/aliases that trigger a local chat response
 
 -- --- Sensor Intervals ---
 local TICK_SECS     = 30.0       -- Base timer delay (in seconds)
@@ -259,46 +259,96 @@ end
 -- Native Sensor Functions (POST to /sl/sensor)
 -- ================================================================
 
+local function get_region_name()
+    local ok, res = pcall(GetGridSimAndPos)
+    if not ok or not res then return "" end
+    if type(res) == "table" then
+        return res.region or res.sim_name or res.name or ""
+    elseif type(res) == "string" then
+        return res
+    end
+    return ""
+end
+
+local function get_my_position()
+    local ok, res1, res2, res3, res4 = pcall(GetGridSimAndPos)
+    if not ok then return 0, 0, 0 end
+    if type(res1) == "table" then
+        if res1.position then return res1.position.x, res1.position.y, res1.position.z end
+        return res1.x or 0, res1.y or 0, res1.z or 0
+    elseif type(res2) == "number" and type(res3) == "number" then
+        -- likely: sim_name, sim_version, x, y, z
+        if type(res4) == "number" then
+            return res2, res3, res4
+        end
+        return res1, res2, res3
+    end
+    return 0, 0, 0
+end
+
+local function get_radar_data_safe(uuid)
+    local ok, res = pcall(GetRadarData, uuid)
+    if ok and type(res) == "table" then return res end
+    return nil
+end
+
 local function sensor_post(stype, data)
+    local ok, info = pcall(GetAgentInfo)
+    local u_id = (ok and type(info) == "table") and info.id or ""
+
     local payload = {
         type    = stype,
-        user_id = GetAgentInfo()["id"],
-        data    = data
+        user_id = u_id,
+        data    = data,
+        region  = get_region_name()
     }
-    
-    local grid_info = GetGridSimAndPos()
-    payload.region = grid_info and grid_info.region or ""
     
     if SECRET and SECRET ~= "" then
         payload.secret = SECRET
     end
     
-    local body = EncodeJSON(payload)
+    local ok_enc, body = pcall(EncodeJSON, payload)
+    if not ok_enc then 
+        print("Failed to encode JSON for sensor: " .. stype)
+        return
+    end
     -- Fire and forget POST
     PostHTTP(SERVER_URL .. "/sl/sensor", body, 15, "application/json", "application/json")
 end
 
 local function scan_avatars()
-    local radar_uuids = GetRadarList()
+    local ok, radar_uuids = pcall(GetRadarList)
+    if not ok or type(radar_uuids) ~= "table" then return end
+    
     local avatars = {}
     local max = 25
-    local my_pos = GetGridSimAndPos()
-    if not my_pos then return end
-    
-    local mx, my = my_pos.x, my_pos.y
+    local mx, my, mz = get_my_position()
 
     for _, uuid in ipairs(radar_uuids) do
-        local av_data = GetRadarData(uuid)
-        if av_data and av_data.position and av_data.id ~= GetAgentInfo().id then
-            local dx = av_data.position.x - mx
-            local dy = av_data.position.y - my
-            local dz = av_data.position.z - my_pos.z
-            local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+        local av_data = get_radar_data_safe(uuid)
+        local ok_info, my_info = pcall(GetAgentInfo)
+        local my_id = (ok_info and type(my_info) == "table") and my_info.id or ""
+        
+        if av_data and av_data.id ~= my_id then
+            local dist = 0
+            if av_data.distance then
+                dist = av_data.distance
+            elseif av_data.position and type(av_data.position) == "table" then
+                local dx = (av_data.position.x or 0) - mx
+                local dy = (av_data.position.y or 0) - my
+                local dz = (av_data.position.z or 0) - mz
+                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+            elseif av_data.pos and type(av_data.pos) == "table" then
+                local dx = (av_data.pos[1] or 0) - mx
+                local dy = (av_data.pos[2] or 0) - my
+                local dz = (av_data.pos[3] or 0) - mz
+                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+            end
             
             table.insert(avatars, {
                 distance = math.floor(dist * 10) / 10.0,
                 key      = uuid,
-                name     = av_data.name
+                name     = av_data.name or "Unknown"
             })
         end
     end
@@ -316,17 +366,21 @@ local function scan_avatars()
 end
 
 local function scan_environment()
-    local grid_info = GetGridSimAndPos()
-    local parcel_info = GetParcelInfo()
+    local ok_parcel, parcel_info = pcall(GetParcelInfo)
     local env_data = {
-        region       = grid_info and grid_info.region or "",
+        region       = get_region_name(),
         rating       = "", -- Sim rating unavailable directly via lua without LSL bridge
         time_of_day  = "12:00", -- Viewer does not expose native EEP time easily
         sun_altitude = 1.0,
-        avatar_count = #(GetRadarList() or {})
+        avatar_count = 0
     }
     
-    if parcel_info then
+    local ok_radar, radar = pcall(GetRadarList)
+    if ok_radar and type(radar) == "table" then
+        env_data.avatar_count = #radar
+    end
+    
+    if ok_parcel and type(parcel_info) == "table" then
         env_data.parcel      = parcel_info.name or ""
         -- truncate desc
         local desc = parcel_info.desc or ""
@@ -338,10 +392,10 @@ local function scan_environment()
 end
 
 local function scan_rlv()
-    local info = GetAgentInfo()
+    local ok_info, info = pcall(GetAgentInfo)
     local is_sitting, is_flying = false, false
     
-    if info then
+    if ok_info and type(info) == "table" then
         if info.sitting or info.sitting_on_ground then is_sitting = true end
         if info.flying then is_flying = true end
     end
@@ -356,10 +410,8 @@ local function scan_rlv()
         position    = {0,0,0}
     }
     
-    local p = GetGridSimAndPos()
-    if p then
-        rlv_data.position = { math.floor(p.x*10)/10, math.floor(p.y*10)/10, math.floor(p.z*10)/10 }
-    end
+    local mx, my, mz = get_my_position()
+    rlv_data.position = { math.floor(mx*10)/10, math.floor(my*10)/10, math.floor(mz*10)/10 }
     
     sensor_post("rlv", rlv_data)
 end
@@ -413,8 +465,10 @@ local function is_triggered(msg)
 end
 
 function OnReceivedChat(msg_type, from_id, is_avatar, name, text)
+    print("OnReceivedChat fired! text: " .. tostring(text) .. " from: " .. tostring(name) .. " is_avatar: " .. tostring(is_avatar))
+    
     -- Filter out system/debug/typing info we don't want buffered.
-    if text == "" or not is_avatar then return end
+    if not text or text == "" or is_avatar == false or is_avatar == 0 then return end
     
     -- Exclude our own messages from triggering ourselves, but buffer them.
     local info = GetAgentInfo()
@@ -429,8 +483,10 @@ function OnReceivedChat(msg_type, from_id, is_avatar, name, text)
         table.remove(nearby_chat, 1)
     end
     
+    print("Checking triggers for: " .. text)
     -- Name trigger: respond if TRIGGER_NAME appears in message
     if (not self_id or from_id ~= self_id) and is_triggered(text) then
+        print("Trigger matched! Sending PostHTTP to /sl/message")
         local region = ""
         local grid_info = GetGridSimAndPos()
         if grid_info then region = grid_info.region or "" end
@@ -478,5 +534,8 @@ end
 
 -- Initial startup tasks
 scan_clothing()
+scan_environment()
+scan_avatars()
+scan_rlv()
 SendChat("/42 LUA_MODE ON")
 CallbackAfter(TICK_SECS * 1000, SensorLoop)

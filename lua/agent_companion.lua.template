@@ -465,18 +465,18 @@ function OnChangedParcel()
     scan_environment()
 end
 
-ThreadRun("companion_sensor_loop", function()
-    -- Initial startup tasks
-    scan_clothing()
-    SendChat("/42 LUA_MODE ON")
+function SensorLoop()
+    tick_count = tick_count + 1
     
-    while true do
-        Sleep(TICK_SECS * 1000)
-        tick_count = tick_count + 1
-        
-        if tick_count % AV_TICKS == 0 then scan_avatars() end
-        if tick_count % ENV_TICKS == 0 then scan_environment() end
-        if tick_count % CHAT_TICKS == 0 then flush_chat() end
-        if tick_count % RLV_TICKS == 0 then scan_rlv() end
-    end
-end)
+    if tick_count % AV_TICKS == 0 then scan_avatars() end
+    if tick_count % ENV_TICKS == 0 then scan_environment() end
+    if tick_count % CHAT_TICKS == 0 then flush_chat() end
+    if tick_count % RLV_TICKS == 0 then scan_rlv() end
+    
+    CallbackAfter(TICK_SECS * 1000, "SensorLoop")
+end
+
+-- Initial startup tasks
+scan_clothing()
+SendChat("/42 LUA_MODE ON")
+CallbackAfter(TICK_SECS * 1000, "SensorLoop")

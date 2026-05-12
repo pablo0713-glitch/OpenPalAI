@@ -4,7 +4,7 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ---
 
-## [Unreleased]
+## 2026-05-12
 
 ### Added
 - **Hybrid Architecture (Cool VL Viewer Native Lua)** — Migrated heavy sensory load (Avatars, Environment, Avatar State, and Ambient Chat) directly into the viewer's `automation.lua` scripting engine natively. This comprehensively resolves the out-of-memory crashes experienced with LSL HUDs in highly congested sims! 

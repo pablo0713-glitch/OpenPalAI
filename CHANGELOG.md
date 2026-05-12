@@ -6,6 +6,13 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Hybrid Architecture (Cool VL Viewer Native Lua)** — Migrated heavy sensory load (Avatars, Environment, Avatar State, and Ambient Chat) directly into the viewer's `automation.lua` scripting engine natively. This comprehensively resolves the out-of-memory crashes experienced with LSL HUDs in highly congested sims! 
+
+### Fixed
+- **Radar Distance Math** — Corrected astronomical distance values reported by the agent's radar by extracting pure `global_x` and `global_y` properties direct from `GetRadarData` via `pairs()` looping rather than using unsupported legacy vector arrays.
+
+
 ### Known Issues
 
 - **LSL HUD stops responding to touch after extended uptime** — After running for some time, the HUD no longer responds to clicks (control panel doesn't open, sensor toggles stop working). Sensory data stops reaching the agent. Root cause unknown — likely a script memory leak, a hung HTTP key, or LSL's listen handle accumulating over region changes. **Workaround:** right-click the HUD object → Edit → Scripts → Reset Scripts, then close the editor. This resets script state without needing to detach and re-wear.

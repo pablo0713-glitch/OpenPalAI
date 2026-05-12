@@ -1,8 +1,10 @@
-# Cool VL Viewer — Lua Interface
+# Cool VL Viewer — Lua Automation Interface
 
-An alternative to the LSL HUD that uses Cool VL Viewer's native Lua scripting API. The agent receives private IMs directly, shows a typing indicator while the model processes the message, and delivers the reply back into the same IM window — no `/42` chat command required.
+An alternative to the LSL HUD that uses Cool VL Viewer's native Lua scripting API. This script serves as the primary intelligence bridge for Trixxie, completely overcoming the stringent active-memory limitations (64KB/512KB) of LSL scripts.
 
-This interface **replaces the conversation path only**. The LSL HUD is still needed for sensor data (avatars, environment, objects, clothing) and ambient chat context.
+This interface **replaces the LSL HUD for almost all heavy sensor tasks**. It handles Avatars (Radar), Environment, Agent State (RLVa), Chat buffering, and IM conversation paths. 
+
+*(Note: Scene Object scanning is currently still pending migration and remains partially dependent on LSL, but the Lua script is self-sufficient for a fully functioning companion.)*
 
 ---
 
@@ -15,17 +17,17 @@ This interface **replaces the conversation path only**. The LSL HUD is still nee
 
 ## Important — Agent's Viewer Only
 
-This script must be installed on **the agent's viewer** (the viewer logged in as Trixxie's avatar). Do **not** install it on your own viewer. If you run `automation.lua` on your viewer, your viewer will forward Trixxie's outgoing IMs back to the bridge — triggering a second inference call for each reply and producing a hallucination loop that spirals until you stop the script (often crashing the server with a rate limit error).
+This script must be installed on **the agent's viewer** (the viewer logged in as Trixxie's avatar). Do **not** install it on your own viewer. If you run `automation.lua` on your viewer, your viewer will mistakenly intercept and route your IMs.
 
 > **⚠️ Running both viewers on the same PC?**
-> Cool VL Viewer shares the `user_settings` folder across all instances. If you use **Option 1** below (renaming the file to `automation.lua`), *both* your viewer and Trixxie's viewer will load the AI script, immediately causing the infinite reply loop. 
+> Cool VL Viewer shares the `user_settings` folder across all instances. If you use **Option 1** below (renaming the file to `automation.lua`), *both* your viewer and Trixxie's viewer will load the AI script, causing chaotic bridging. 
 > **The Fix:** Delete `automation.lua` from your `user_settings` folder completely, and use **Option 2** to load the script manually *only* on Trixxie's viewer.
 
 ---
 
 ## Installation
 
-`lua/agent_companion.lua` is generated automatically by `./run.sh` with your credentials already filled in from `.env`. You do not need to edit it manually.
+`lua/agent_companion.lua` is generated automatically by `./run.sh` with your credentials filled in from `.env` using `agent_companion.lua.template`.
 
 **Option 1 — Copy the file (recommended for separate PCs)**
 
@@ -34,93 +36,54 @@ Copy `lua/agent_companion.lua` to the Cool VL Viewer user settings folder and re
 | OS | Path |
 |---|---|
 | Linux | `~/.secondlife/user_settings/automation.lua` |
-| Windows | `&#37;APPDATA&#37;\SecondLife\user_settings\automation.lua` |
+| Windows | `%APPDATA%\SecondLife\user_settings\automation.lua` |
 | macOS | `~/Library/Application Support/SecondLife/user_settings/automation.lua` |
 
-This is the preferred method because it ensures the viewer loads the script automatically on startup. You will need to re-copy the file any time the script is updated by `./run.sh`.
+This is the preferred method because it ensures the viewer loads the script automatically on startup. 
 
 **Option 2 — Point Cool VL Viewer directly at the file (required for same-PC setups)**
 
-Cool VL Viewer has a built-in file selector for the automation script. Use it to select `lua/agent_companion.lua` from your companion-agent install folder. Note: If you point to a different script rather than the default `automation.lua` path, you must manually load that script every time the viewer runs.
+Cool VL Viewer has a built-in file selector for the automation script. Open **Advanced -> Lua -> Load Lua script...** and select `lua/agent_companion.lua` from your companion-agent install folder. Note: You must manually load that script every time the viewer runs.
 
 ---
 
-## How It Works
+## How It Works (The Hybrid Architecture)
 
-| Step | What happens |
-|---|---|
-| Someone sends the agent a private IM | `OnInstantMsg` fires (type == 0, peer-to-peer only) |
-| | Echo check — if the message matches a recently sent reply, it is discarded |
-| | `SetAgentTyping(true)` — typing indicator appears immediately |
-| | `PostHTTP` fires an async POST to `/sl/message` |
-| Model returns a reply | `OnHTTPReply` fires |
-| | `SetAgentTyping(false)` — indicator clears |
-| | Reply is split into ≤ 1000-char chunks and delivered via `SendIM` |
+Rather than forcing the SL Simulator to process heavy avatar distance calculations and string concatenations via LSL, this script directly interrogates the Cool VL Viewer client APIs.
 
-The typing indicator is visible for exactly the duration of model inference — the same natural feel as a human typing a response.
+1. **Continuous Streaming:** The script utilizes a `SensorLoop()` built on `CallbackAfter()` that fires non-blocking asynchronous HTTP POSTs to the Python Backend (`/sl/sensor`) every 4-30 seconds depending on the data type.
+2. **In-Memory Caching:** The Python backend receives these payloads and overwrites the `SensorStore` in memory.
+3. **Reactive AI:** Trixxie remains asleep until spoken to (IM or triggered local chat). Once triggered, `AgentCore` reads the latest snapshot from `SensorStore` instantly, drastically reducing latency compared to proactive scanning.
 
-Nearby chat context is **not** captured by this script. It is delivered via the LSL HUD's sensor pipeline (`/sl/sensor` type `chat`) and injected into the system prompt by `SensorStore.get_changes()` on each message. The HUD must be worn and active.
+### What Lua Handles:
+- **Avatars:** Extracts exact distance and global coordinates via `GetRadarList` and `GetRadarData`. (Requires the viewer Radar floater to be open or configured to background update).
+- **Environment:** Simulator Region, Name, Sun/Moon phase, Time of Day (SLT), and Parcel flags.
+- **Agent State:** Moving, flying, sitting, typing, sitting on object, etc.
+- **Chat:** Maintains a 10-line rolling buffer of local chat without the strict string chunking limits of LSL.
+- **Direct IM:** Real-time typing indicators (`SetAgentTyping`) and native unlimited chat routing directly into the active IM window.
 
 ---
 
 ## Echo Suppression
 
-Cool VL Viewer reflects sent IMs back through `OnInstantMsg` with the **recipient's UUID** as `origin_id` rather than the sender's. This bypasses the standard self-check (`origin_id == self_info["id"]`) and would otherwise cause Trixxie's own reply to loop back as a new incoming message.
-
-The script maintains a `sent_replies` counter table. Each chunk increments its counter before `SendIM`. On the next `OnInstantMsg`, if the incoming text has a pending count > 0, the count is decremented and the message is dropped. Each echo is consumed exactly once, so the same text sent legitimately later is not affected.
-
----
-
-## Actions
-
-The bridge can return `actions` alongside a reply. The Lua script handles the following action types:
-
-| Action type | What the script does |
-|---|---|
-| `mute_avatar` | Calls `AddMute(uuid, 1)` — mutes the target avatar by UUID |
-| `unmute_avatar` | Calls `RemoveMute(uuid, 1)` — unmutes the target avatar by UUID |
-| `is_muted` | Calls `IsMuted(uuid, 1)` and sends the result back as an IM |
-| Any other action with text | Delivered as an IM to the conversation |
-
-Mute/unmute actions are triggered when the agent uses the `sl_action` tool with the corresponding type. The `target_key` field in the action payload must be a valid avatar UUID.
+Cool VL Viewer reflects sent IMs back through `OnInstantMsg`. The script maintains a `sent_replies` counter table. Each chunk increments its counter before `SendIM`. On the next `OnInstantMsg`, if the incoming text has a pending count > 0, the count is decremented and the message is dropped, preventing hallucination loops.
 
 ---
 
 ## Authentication
 
-Cool VL Viewer's `PostHTTP` cannot send custom HTTP headers, so the secret is included in the JSON request body rather than in `X-SL-Secret`. The server accepts the secret from either location, so the LSL HUD and this script can coexist without any server-side changes.
-
----
-
-## Differences from the LSL HUD
-
-| Feature | LSL HUD | Lua script |
-|---|---|---|
-| Conversation trigger | `/42 message` in local chat | Private IM to the agent directly |
-| Sensor data (avatars, env, etc.) | Yes | No — HUD still required |
-| Ambient chat buffer | Yes | No — via HUD sensor pipeline only |
-| Typing indicator | No | Yes — `SetAgentTyping` |
-| Reply chunking | `send_chunked()` in LSL | `split_chunks()` in Lua |
-| Mute / unmute / is_muted | No | Yes — `AddMute` / `RemoveMute` / `IsMuted` |
-| Custom auth header | `X-SL-Secret` | Body `secret` field |
+Cool VL Viewer's `PostHTTP` cannot send custom HTTP headers like `X-SL-Secret`. Instead, the secret is bundled directly into the JSON `payload.secret` object. The Python backend dynamically validates both HTTP headers (for legacy LSL) and the JSON body (for Lua).
 
 ---
 
 ## Troubleshooting
 
-**No reply arrives:**
-- Confirm `SERVER_URL` is set to the correct public HTTPS URL (not localhost).
-- Check that the bridge server is running (`./run.sh`) and cloudflared is active.
-- In the viewer, open **Advanced → Lua → Show Lua console** and check for errors.
+**No avatars are appearing in sweeps!**
+- You must keep the Radar floater open in Trixxie's viewer, or configure the radar preferences to update in the background. If the radar is closed, the viewer API returns `nil` to conserve CPU.
 
-**"Authentication failed." reply:**
+**"Authentication failed."**
 - Confirm `SECRET` in the Lua script matches `SL_BRIDGE_SECRET` in `.env`.
 
-**Agent gets stuck in an infinite reply loop or returns errors instantly:**
-- You are likely running both viewers on the same PC and your personal viewer loaded the script by mistake. Delete `automation.lua` from your `user_settings` folder and use **Option 2** for the agent's viewer instead.
-
-**Replies cut off mid-sentence:**
-- The chunker breaks at sentence boundaries. If replies are still truncating, the `REPLY_HARD_CAP` on the server (4000 chars for SL, 1800 for OpenSim) may be too low for the conversation style — adjust in `interfaces/sl_bridge/formatters.py`.
-
-**Mute/unmute has no effect:**
-- Confirm the `target_key` in the action is a valid UUID (not a display name). The agent pulls UUIDs from the avatar radar sensor — verify the LSL HUD is active and sending avatar data.
+**No reply arrives:**
+- Confirm `SERVER_URL` in the script is set to the correct public HTTPS URL.
+- Open **Advanced → Lua → Show Lua console** in the viewer and check for network errors.

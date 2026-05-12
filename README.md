@@ -241,6 +241,20 @@ Copy the `https://` URL it prints — you'll enter it into the wizard and paste 
 
 When attached, the HUD says `Trixxie Sensory HUD active. Touch to open controls.` in local chat (only visible to you). Touch it to open the sensor control panel.
 
+
+### ⚡ Advanced: Bypassing LSL Memory Limitations (Cool VL Viewer Native Lua)
+
+Second Life's default LSL scripting engine caps scripts at 64KB (or 512KB for Mono). For extremely busy sims with heavy sensor data, the LSL HUD can run out of memory. 
+
+To bypass this entirely, you can use the **Hybrid Architecture** by running the agent directly through Cool VL Viewer's native Lua scripting API. This moves the heavy environment, radar, and chat caching directly into the viewer client, resulting in lightning-fast response times and unlimited memory.
+
+**How to use:**
+1. Ensure your agent is logged in via **Cool VL Viewer**.
+2. Copy `lua/agent_companion.lua` into your `user_settings` directory as `automation.lua` (See `lua/README.md` for exact OS paths).
+3. The Lua script handles IMs, Avatars, Environment, and Agent State natively. *Note: Scene Objects still require the LSL HUD worn to scan.*
+
+See [lua/README.md](lua/README.md) for full installation instructions and the complete feature breakdown of the Lua interface.
+
 ### 3. Log your agent's avatar in
 
 Log into the avatar's account through any SL viewer. The HUD does the rest — it begins streaming sensor data (nearby avatars, environment, chat) to the bridge automatically.

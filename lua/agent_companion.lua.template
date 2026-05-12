@@ -11,8 +11,8 @@
 -- ================================================================
 
 -- --- Config ---
-local SERVER_URL    = "https://155.138.223.115.nip.io"
-local SECRET        = "h1th3r3!"
+local SERVER_URL    = "http://127.0.0.1:8080"
+local SECRET        = ""
 local GRID          = "sl"       -- "sl" or "opensim"
 local IM_CHUNK_SIZE = 1000       -- max chars per SendIM call
 local CHAT_BUF_SIZE = 10         -- ambient chat lines to buffer
@@ -259,6 +259,15 @@ end
 -- Native Sensor Functions (POST to /sl/sensor)
 -- ================================================================
 
+local function dump_table(t)
+    if type(t) ~= "table" then return tostring(t) end
+    local s = {}
+    for k, v in pairs(t) do
+        table.insert(s, tostring(k) .. "=" .. type(v))
+    end
+    return "{" .. table.concat(s, ", ") .. "}"
+end
+
 local function get_region_name()
     local ok, res = pcall(GetGridSimAndPos)
     if not ok or not res then return "" end
@@ -271,17 +280,18 @@ local function get_region_name()
 end
 
 local function get_my_position()
-    local ok, res1, res2, res3, res4 = pcall(GetGridSimAndPos)
+    local ok, r1, r2, r3, r4, r5 = pcall(GetGridSimAndPos)
     if not ok then return 0, 0, 0 end
-    if type(res1) == "table" then
-        if res1.position then return res1.position.x, res1.position.y, res1.position.z end
-        return res1.x or 0, res1.y or 0, res1.z or 0
-    elseif type(res2) == "number" and type(res3) == "number" then
-        -- likely: sim_name, sim_version, x, y, z
-        if type(res4) == "number" then
-            return res2, res3, res4
-        end
-        return res1, res2, res3
+    if type(r1) == "table" then
+        local px = r1.local_x or r1.pos_x or r1.x or 0
+        local py = r1.local_y or r1.pos_y or r1.y or 0
+        local pz = r1.altitude or r1.pos_z or r1.z or 0
+        return px, py, pz
+    elseif type(r3) == "number" and type(r4) == "number" and type(r5) == "number" then
+        -- GetGridSimAndPos returns: sim_name (str), sim_version (str), x (float), y (float), z (float)
+        return r3, r4, r5
+    elseif type(r2) == "number" and type(r3) == "number" and type(r4) == "number" then
+        return r2, r3, r4
     end
     return 0, 0, 0
 end
@@ -316,40 +326,62 @@ local function sensor_post(stype, data)
     PostHTTP(SERVER_URL .. "/sl/sensor", body, 15, "application/json", "application/json")
 end
 
+local function split_string(inputstr, sep)
+    if sep == nil then sep = "%s" end
+    local t = {}
+    for str in string.gmatch(inputstr, "([^"..sep.."]+)") do
+        table.insert(t, str)
+    end
+    return t
+end
+
 local function scan_avatars()
-    local ok, radar_uuids = pcall(GetRadarList)
-    if not ok or type(radar_uuids) ~= "table" then return end
+    -- SetRadarTracking activates radar tracking for the local agent if it wasn't active,
+    -- which forces the radar to wake up in background if the floater is closed.
+    -- However, tracking ourself isn't valid, but sending nil or empty might activate it.
+    -- Better way: The manual says GetRadarList returns nil when "the floater is closed and the radar inactive."
+    -- We can just force the radar Open via UI command if need be, but let's see why it's nil.
+    local ok, radar_list = pcall(GetRadarList, 1) -- 1 returns legacy name + display name
+    
+    if type(radar_list) ~= "table" then return end
     
     local avatars = {}
     local max = 25
-    local mx, my, mz = get_my_position()
+    local ok_loc, my_loc = pcall(GetGridSimAndPos)
+    local g_mx, g_my, g_mz = 0, 0, 0
+    if ok_loc and type(my_loc) == "table" then
+        g_mx = my_loc.global_x or 0
+        g_my = my_loc.global_y or 0
+        g_mz = my_loc.altitude or 0
+    end
 
-    for _, uuid in ipairs(radar_uuids) do
+    -- The manual explicitly says returning table has "avatars UUIDs (Lua string type) as keys"
+    -- and "their name as values". So we must use pairs(radar_list), not ipairs().
+    for uuid, name in pairs(radar_list) do
         local av_data = get_radar_data_safe(uuid)
-        local ok_info, my_info = pcall(GetAgentInfo)
-        local my_id = (ok_info and type(my_info) == "table") and my_info.id or ""
         
-        if av_data and av_data.id ~= my_id then
-            local dist = 0
-            if av_data.distance then
-                dist = av_data.distance
-            elseif av_data.position and type(av_data.position) == "table" then
-                local dx = (av_data.position.x or 0) - mx
-                local dy = (av_data.position.y or 0) - my
-                local dz = (av_data.position.z or 0) - mz
-                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-            elseif av_data.pos and type(av_data.pos) == "table" then
-                local dx = (av_data.pos[1] or 0) - mx
-                local dy = (av_data.pos[2] or 0) - my
-                local dz = (av_data.pos[3] or 0) - mz
-                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-            end
+        if av_data and type(av_data) == "table" then
+            local ok_info, my_info = pcall(GetAgentInfo)
+            local my_id = (ok_info and type(my_info) == "table") and my_info.id or ""
             
-            table.insert(avatars, {
-                distance = math.floor(dist * 10) / 10.0,
-                key      = uuid,
-                name     = av_data.name or "Unknown"
-            })
+            if uuid ~= "" and uuid ~= my_id then
+                -- GetRadarData returns global_x, global_y, altitude
+                local ax = av_data.global_x or g_mx
+                local ay = av_data.global_y or g_my
+                local az = av_data.altitude or g_mz
+                
+                local dist = 0
+                if ax ~= g_mx or ay ~= g_my or az ~= g_mz then
+                    dist = math.sqrt((ax-g_mx)^2 + (ay-g_my)^2 + (az-g_mz)^2)
+                end
+                
+                table.insert(avatars, {
+                    distance = math.floor(dist * 10) / 10.0,
+                    key      = uuid,
+                    name     = name,
+                    pos      = { math.floor(ax*10)/10, math.floor(ay*10)/10, math.floor(az*10)/10 }
+                })
+            end
         end
     end
     
@@ -360,17 +392,23 @@ local function scan_avatars()
         table.insert(trimmed, avatars[i])
     end
     
-    if #trimmed > 0 then
-        sensor_post("avatars", trimmed)
-    end
+    -- Always post to update backend timestamp even if empty
+    sensor_post("avatars", trimmed)
 end
 
 local function scan_environment()
     local ok_parcel, parcel_info = pcall(GetParcelInfo)
+    
+    local time_str = ""
+    local ok_time, ts = pcall(GetTimeStamp, -8, "%H:%M")
+    if ok_time and type(ts) == "string" then
+        time_str = ts
+    end
+
     local env_data = {
         region       = get_region_name(),
-        rating       = "", -- Sim rating unavailable directly via lua without LSL bridge
-        time_of_day  = "12:00", -- Viewer does not expose native EEP time easily
+        rating       = "", 
+        time_of_day  = time_str, 
         sun_altitude = 1.0,
         avatar_count = 0
     }
@@ -391,29 +429,40 @@ local function scan_environment()
     sensor_post("environment", env_data)
 end
 
-local function scan_rlv()
+local function scan_agent_state()
     local ok_info, info = pcall(GetAgentInfo)
     local is_sitting, is_flying = false, false
+    local pos = {0,0,0}
     
     if ok_info and type(info) == "table" then
         if info.sitting or info.sitting_on_ground then is_sitting = true end
+
         if info.flying then is_flying = true end
+        
+        if info.position and type(info.position) == "table" then
+            pos = { info.position.x or 0, info.position.y or 0, info.position.z or 0 }
+        elseif info.pos and type(info.pos) == "table" then
+            pos = { info.pos[1] or 0, info.pos[2] or 0, info.pos[3] or 0 }
+        else
+            local mx, my, mz = get_my_position()
+            pos = { math.floor(mx*10)/10, math.floor(my*10)/10, math.floor(mz*10)/10 }
+        end
+    else
+        local mx, my, mz = get_my_position()
+        pos = { math.floor(mx*10)/10, math.floor(my*10)/10, math.floor(mz*10)/10 }
     end
     
-    local rlv_data = {
+    local state_data = {
         sitting     = is_sitting,
         on_object   = is_sitting, -- no easy way to discern ground vs object via just lua sitting flag right now
         sitting_on  = "",
         autopilot   = false,
         flying      = is_flying,
         teleported  = false,
-        position    = {0,0,0}
+        position    = pos
     }
     
-    local mx, my, mz = get_my_position()
-    rlv_data.position = { math.floor(mx*10)/10, math.floor(my*10)/10, math.floor(mz*10)/10 }
-    
-    sensor_post("rlv", rlv_data)
+    sensor_post("rlv", state_data)
 end
 
 local function flush_chat()
@@ -527,7 +576,7 @@ function SensorLoop()
     if tick_count % AV_TICKS == 0 then scan_avatars() end
     if tick_count % ENV_TICKS == 0 then scan_environment() end
     if tick_count % CHAT_TICKS == 0 then flush_chat() end
-    if tick_count % RLV_TICKS == 0 then scan_rlv() end
+    if tick_count % RLV_TICKS == 0 then scan_agent_state() end
     
     CallbackAfter(TICK_SECS * 1000, SensorLoop)
 end
@@ -536,6 +585,6 @@ end
 scan_clothing()
 scan_environment()
 scan_avatars()
-scan_rlv()
+scan_agent_state()
 SendChat("/42 LUA_MODE ON")
 CallbackAfter(TICK_SECS * 1000, SensorLoop)

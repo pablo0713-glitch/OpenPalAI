@@ -641,6 +641,29 @@ automation.lua — OnHTTPReply(handle, success, reply)
 Reply arrives in YourAvatar' IM window — no /42 required
 ```
 
+
+### Hybrid Architecture (Cool VL Viewer Native Sensors)
+
+To overcome LSL's strict 512KB HTTP-POST dictionary string concatenation memory limits (which often crashed scripts in highly populated SIMs), a **Hybrid Architecture** runs entirely inside `automation.lua`.
+
+```
+YourAvatar is near Trixxie in Second Life
+        │
+        ▼
+automation.lua — SensorLoop() runs on CallbackAfter timers
+        │  Uses pcall(GetRadarList) to fetch surrounding avatars instantaneously
+        │  Uses pcall(GetParcelInfo) & GetTimeStamp
+        │  Uses pcall(GetAgentState)
+        │  PostHTTP POST /sl/sensor  [secret in body]
+        ▼
+cloudflared tunnel  →  FastAPI bridge (localhost:8080)
+        │
+        ▼
+SensorStore  ← updates in-memory arrays with lightning fast JSON snapshots.
+```
+
+In this mode, the LSL HUD is only relied upon to provide Scene Object data since that cannot be parsed fully by the viewer UI as effectively.
+
 Sensor data travels a separate path in both cases — the HUD POSTs to `/sl/sensor` on independent timers and on location changes. The `/sl/message` endpoint calls `SensorStore.get_changes()` which returns only sensor types updated since that user's last message. Chat is no longer piggybacked on `/42` or IM payloads — it is flushed via `do_chat_flush()` to `/sl/sensor` every 90 seconds and immediately before each `/42` POST.
 
 ---

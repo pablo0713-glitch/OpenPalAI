@@ -15,7 +15,9 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ### Known Issues
 
-- **LSL HUD stops responding to touch after extended uptime** — After running for some time, the HUD no longer responds to clicks (control panel doesn't open, sensor toggles stop working). Sensory data stops reaching the agent. Root cause unknown — likely a script memory leak, a hung HTTP key, or LSL's listen handle accumulating over region changes. **Workaround:** right-click the HUD object → Edit → Scripts → Reset Scripts, then close the editor. This resets script state without needing to detach and re-wear.
+- **LSL HUD stops responding to touch after extended uptime** — After running for some time, the HUD no longer responds to clicks (control panel doesn't open, sensor toggles stop working). Sensory data stops reaching the agent. Root cause is low or out of memory issue with LSL Mono. ~~**Workaround:** right-click the HUD object → Edit → Scripts → Reset Scripts, then close the editor. This resets script state without needing to detach and re-wear.~~
+
+**Note:** The script will now auto reset when memory gets too low (this is the main culprit of the HUD not responding). 
 
 ---
 

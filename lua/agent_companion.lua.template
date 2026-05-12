@@ -473,10 +473,10 @@ function SensorLoop()
     if tick_count % CHAT_TICKS == 0 then flush_chat() end
     if tick_count % RLV_TICKS == 0 then scan_rlv() end
     
-    CallbackAfter(TICK_SECS * 1000, "SensorLoop")
+    CallbackAfter(TICK_SECS * 1000, SensorLoop)
 end
 
 -- Initial startup tasks
 scan_clothing()
 SendChat("/42 LUA_MODE ON")
-CallbackAfter(TICK_SECS * 1000, "SensorLoop")
+CallbackAfter(TICK_SECS * 1000, SensorLoop)

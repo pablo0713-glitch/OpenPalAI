@@ -15,10 +15,21 @@ local SERVER_URL    = "YOUR_TUNNEL_URL"
 local SECRET        = "YOUR_BRIDGE_SECRET"
 local GRID          = "sl"       -- "sl" or "opensim"
 local IM_CHUNK_SIZE = 1000       -- max chars per SendIM call
+local CHAT_BUF_SIZE = 10         -- ambient chat lines to buffer
+local TRIGGER_NAMES = {"Primary", "Alias1", "Alias2"} -- names/aliases that trigger a local chat response
+
+-- --- Sensor Intervals ---
+local TICK_SECS     = 30.0       -- Base timer delay (in seconds)
+local AV_TICKS      = 2          -- avatar scan every 2 ticks (60s)
+local ENV_TICKS     = 20         -- env scan every 20 ticks (600s)
+local CHAT_TICKS    = 3          -- chat flush every 3 ticks (90s)
+local RLV_TICKS     = 1          -- RLV state every 1 tick (30s)
 
 -- --- State ---
 local pending_ims  = {}   -- [handle] = {session_id, origin_id}
 local sent_replies = {}   -- [text] = pending echo count — echo suppression
+local nearby_chat  = {}   -- rolling buffer of local chat
+local tick_count   = 0    -- main thread loop tick counter
 
 
 -- ================================================================
@@ -71,15 +82,21 @@ local function split_chunks(text)
     return chunks
 end
 
--- Deliver a (potentially long) reply as successive SendIM calls.
-local function send_chunked(session_id, text)
+-- Deliver a (potentially long) reply as successive SendIM or SendChat calls.
+local function send_chunked(session_id, text, is_local)
     local chunks = split_chunks(text)
     for _, chunk in ipairs(chunks) do
         sent_replies[chunk] = (sent_replies[chunk] or 0) + 1
-        SendIM(session_id, chunk)
+        if is_local then
+            SendChat(chunk)
+        else
+            SendIM(session_id, chunk)
+        end
     end
 end
 
+
+local scan_clothing -- forward declaration
 
 -- ================================================================
 -- OnInstantMsg — fires on every received IM
@@ -160,7 +177,7 @@ function OnHTTPReply(handle, success, reply)
     -- Deliver direct reply text (chunked to respect 1023-char IM limit).
     local reply_text = data["reply"] or ""
     if reply_text ~= "" then
-        send_chunked(ctx.session_id, reply_text)
+        send_chunked(ctx.session_id, reply_text, ctx.is_local)
     end
 
     -- Deliver any action lines (im / emote / mute / unmute).
@@ -216,6 +233,8 @@ function OnHTTPReply(handle, success, reply)
                     print("OnHTTPReply: IsMuted=" .. tostring(muted))
                     SendIM(ctx.session_id, label .. " is " .. (muted and "muted" or "not muted"))
                 end
+            elseif atype == "scan_outfit" then
+                scan_clothing()
             elseif atext ~= "" then
                 if atype == "emote" then
                     -- Wrap in asterisks if not already.
@@ -223,7 +242,11 @@ function OnHTTPReply(handle, success, reply)
                         atext = "*" .. atext .. "*"
                     end
                 end
-                SendIM(ctx.session_id, atext)
+                if ctx.is_local and (atype == "say" or atype == "emote") then
+                    SendChat(atext)
+                else
+                    SendIM(ctx.session_id, atext)
+                end
             end
         end
     else
@@ -232,7 +255,228 @@ function OnHTTPReply(handle, success, reply)
 end
 
 
--- OnReceivedChat is intentionally not implemented here.
--- Nearby chat is captured by the LSL HUD's channel 0 listener, flushed to
--- /sl/sensor every 90s, and delivered via SensorStore.get_changes() on the
--- next message. The HUD must be worn and running alongside this script.
+-- ================================================================
+-- Native Sensor Functions (POST to /sl/sensor)
+-- ================================================================
+
+local function sensor_post(stype, data)
+    local payload = {
+        type    = stype,
+        user_id = GetAgentInfo()["id"],
+        data    = data
+    }
+    
+    local grid_info = GetGridSimAndPos()
+    payload.region = grid_info and grid_info.region or ""
+    
+    if SECRET and SECRET ~= "" then
+        payload.secret = SECRET
+    end
+    
+    local body = EncodeJSON(payload)
+    -- Fire and forget POST
+    PostHTTP(SERVER_URL .. "/sl/sensor", body, 15, "application/json", "application/json")
+end
+
+local function scan_avatars()
+    local radar_uuids = GetRadarList()
+    local avatars = {}
+    local max = 25
+    local my_pos = GetGridSimAndPos()
+    if not my_pos then return end
+    
+    local mx, my = my_pos.x, my_pos.y
+
+    for _, uuid in ipairs(radar_uuids) do
+        local av_data = GetRadarData(uuid)
+        if av_data and av_data.position and av_data.id ~= GetAgentInfo().id then
+            local dx = av_data.position.x - mx
+            local dy = av_data.position.y - my
+            local dz = av_data.position.z - my_pos.z
+            local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+            
+            table.insert(avatars, {
+                distance = math.floor(dist * 10) / 10.0,
+                key      = uuid,
+                name     = av_data.name
+            })
+        end
+    end
+    
+    -- sort and trim to max
+    table.sort(avatars, function(a, b) return a.distance < b.distance end)
+    local trimmed = {}
+    for i=1, math.min(#avatars, max) do
+        table.insert(trimmed, avatars[i])
+    end
+    
+    if #trimmed > 0 then
+        sensor_post("avatars", trimmed)
+    end
+end
+
+local function scan_environment()
+    local grid_info = GetGridSimAndPos()
+    local parcel_info = GetParcelInfo()
+    local env_data = {
+        region       = grid_info and grid_info.region or "",
+        rating       = "", -- Sim rating unavailable directly via lua without LSL bridge
+        time_of_day  = "12:00", -- Viewer does not expose native EEP time easily
+        sun_altitude = 1.0,
+        avatar_count = #(GetRadarList() or {})
+    }
+    
+    if parcel_info then
+        env_data.parcel      = parcel_info.name or ""
+        -- truncate desc
+        local desc = parcel_info.desc or ""
+        if string.len(desc) > 400 then desc = string.sub(desc, 1, 399) end
+        env_data.parcel_desc = string.gsub(desc, "\r*$", "")
+    end
+    
+    sensor_post("environment", env_data)
+end
+
+local function scan_rlv()
+    local info = GetAgentInfo()
+    local is_sitting, is_flying = false, false
+    
+    if info then
+        if info.sitting or info.sitting_on_ground then is_sitting = true end
+        if info.flying then is_flying = true end
+    end
+    
+    local rlv_data = {
+        sitting     = is_sitting,
+        on_object   = is_sitting, -- no easy way to discern ground vs object via just lua sitting flag right now
+        sitting_on  = "",
+        autopilot   = false,
+        flying      = is_flying,
+        teleported  = false,
+        position    = {0,0,0}
+    }
+    
+    local p = GetGridSimAndPos()
+    if p then
+        rlv_data.position = { math.floor(p.x*10)/10, math.floor(p.y*10)/10, math.floor(p.z*10)/10 }
+    end
+    
+    sensor_post("rlv", rlv_data)
+end
+
+local function flush_chat()
+    if #nearby_chat == 0 then return end
+    sensor_post("chat", nearby_chat)
+    -- Clear buffer since we only want to submit new messages each time
+    nearby_chat = {}
+end
+
+scan_clothing = function()
+    local attach = GetAgentAttachments()
+    local layers = GetAgentWearables()
+    
+    local attach_csv = ""
+    local layers_csv = ""
+    
+    if attach then
+        local names = {}
+        for _, itm in ipairs(attach) do table.insert(names, itm.name or "obj") end
+        attach_csv = table.concat(names, ", ")
+    end
+    if layers then
+        local names = {}
+        for _, itm in ipairs(layers) do table.insert(names, itm.name or "layer") end
+        layers_csv = table.concat(names, ", ")
+    end
+    
+    local clothing_data = {
+        attachments = attach_csv,
+        layers      = layers_csv
+    }
+    sensor_post("clothing", clothing_data)
+end
+
+
+-- ================================================================
+-- Local Chat Events
+-- ================================================================
+
+-- Check if any string inside triggers list is inside the message
+local function is_triggered(msg)
+    local msg_lower = string.lower(msg)
+    for _, trigger in ipairs(TRIGGER_NAMES) do
+        if string.find(msg_lower, string.lower(trigger), 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+function OnReceivedChat(msg_type, from_id, is_avatar, name, text)
+    -- Filter out system/debug/typing info we don't want buffered.
+    if text == "" or not is_avatar then return end
+    
+    -- Exclude our own messages from triggering ourselves, but buffer them.
+    local info = GetAgentInfo()
+    local self_id = info and info.id
+    
+    local raw = name .. ": " .. text
+    if string.len(raw) > 200 then raw = string.sub(raw, 1, 199) end
+    
+    -- Buffer for sensor context
+    table.insert(nearby_chat, raw)
+    if #nearby_chat > CHAT_BUF_SIZE then
+        table.remove(nearby_chat, 1)
+    end
+    
+    -- Name trigger: respond if TRIGGER_NAME appears in message
+    if (not self_id or from_id ~= self_id) and is_triggered(text) then
+        local region = ""
+        local grid_info = GetGridSimAndPos()
+        if grid_info then region = grid_info.region or "" end
+
+        local payload = {
+            user_id      = from_id,
+            display_name = name,
+            message      = text,
+            region       = region,
+            channel      = 0,
+            grid         = GRID,
+            client       = "lua",
+        }
+
+        if SECRET and SECRET ~= "" then
+            payload.secret = SECRET
+        end
+
+        local body = EncodeJSON(payload)
+        -- Route to the same IM HTTP handler for ease of chunking the replies
+        local handle = PostHTTP(SERVER_URL .. "/sl/message", body, 60, "application/json", "application/json")
+        -- we pretend the session id is zero
+        pending_ims[handle] = {session_id = from_id, origin_id = from_id, is_local=true}
+    end
+end
+
+-- ================================================================
+-- Thread and Subsystems Init
+-- ================================================================
+
+function OnChangedParcel()
+    scan_environment()
+end
+
+ThreadRun("companion_sensor_loop", function()
+    -- Initial startup tasks
+    scan_clothing()
+    SendChat("/42 LUA_MODE ON")
+    
+    while true do
+        Sleep(TICK_SECS * 1000)
+        tick_count = tick_count + 1
+        
+        if tick_count % AV_TICKS == 0 then scan_avatars() end
+        if tick_count % ENV_TICKS == 0 then scan_environment() end
+        if tick_count % CHAT_TICKS == 0 then flush_chat() end
+        if tick_count % RLV_TICKS == 0 then scan_rlv() end
+    end
+end)

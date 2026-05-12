@@ -39,6 +39,9 @@ integer s_voice   = FALSE;  // enables /sl/voice endpoint on the server; stub un
 // s_stream = FALSE → sensors POST only when a /42 message is sent
 integer s_stream  = FALSE;
 
+// --- Lua Assisted Mode ---
+integer bLuaMode = FALSE;
+
 // --- Avatar scan: returns the closest avatars in the region (hard cap) ---
 integer AV_MAX      = 25;
 
@@ -231,7 +234,7 @@ key sensor_post(string stype, string data_json)
 
 do_avatar_scan()
 {
-    if (!s_avatars) return;
+    if (!s_avatars || bLuaMode) return;
 
     list    agents = llGetAgentList(AGENT_LIST_REGION, []);
     vector  my_pos = llGetPos();
@@ -289,7 +292,7 @@ do_avatar_scan()
 
 do_env_scan()
 {
-    if (!s_env) return;
+    if (!s_env || bLuaMode) return;
 
     string region   = llGetRegionName();
     list   pd       = llGetParcelDetails(llGetPos(),
@@ -331,7 +334,7 @@ key sk_chat = NULL_KEY;
 
 do_chat_flush()
 {
-    if (!s_chat) return;
+    if (!s_chat || bLuaMode) return;
     integer cn = llGetListLength(nearby_chat);
     if (cn == 0) return;
 
@@ -370,7 +373,7 @@ do_object_scan()
 
 do_rlv_scan()
 {
-    if (!s_rlv) return;
+    if (!s_rlv || bLuaMode) return;
 
     integer info  = llGetAgentInfo(llGetOwner());
     rlv_sitting   = (info & AGENT_SITTING)   != 0;
@@ -425,6 +428,7 @@ post_rlv_data(string sitting_on)
 
 do_outfit_scan()
 {
+    if (bLuaMode) return;
     if (!rlv_ready) { llOwnerSay("RLV not ready yet — try again in a moment."); return; }
     if (rlv_scanning)
         llOwnerSay("Restarting outfit scan...");
@@ -677,7 +681,7 @@ default
         if (channel == 0)
         {
             // Ignore the HUD itself so it doesn't buffer its own replies
-            if (id == llGetKey()) return;
+            if (id == llGetKey() || bLuaMode) return;
 
             // Always buffer for sensor context
             if (s_chat)
@@ -745,6 +749,22 @@ default
         // ── Channel 42: reply flow ──
         if (channel == LISTEN_CHANNEL)
         {
+            if (id == llGetOwner())
+            {
+                if (message == "LUA_MODE ON")
+                {
+                    bLuaMode = TRUE;
+                    llOwnerSay("LUA MODE: ON (Sensors outsourced to native Cool VL Viewer Lua)");
+                    return;
+                }
+                else if (message == "LUA_MODE OFF")
+                {
+                    bLuaMode = FALSE;
+                    llOwnerSay("LUA MODE: OFF (HUD standalone mode active)");
+                    return;
+                }
+            }
+
             if (reply_http != NULL_KEY)
             {
                 llInstantMessage(id, "*still thinking...*");

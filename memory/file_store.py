@@ -254,7 +254,7 @@ async def _write_json(path: str, data: dict) -> None:
 
 
 def _sanitize_tool_pairs(turns: list[dict]) -> list[dict]:
-    """Drop orphaned tool_result / tool_use blocks left by history trimming.
+    """Drop orphaned tool_result / tool_use blocks and merge consecutive same-role turns.
 
     History trim is a naive tail-slice that can cut an assistant tool_use turn
     without removing the following user tool_result turn, producing a 400 from
@@ -265,6 +265,9 @@ def _sanitize_tool_pairs(turns: list[dict]) -> list[dict]:
     Pass 2 — drop tool_use blocks from assistant turns that have no matching
               tool_result in the immediately following user turn (can occur when
               pass 1 empties that user turn and drops it entirely).
+    Pass 3 — merge consecutive same-role assistant turns. These arise when old
+              code stored intermediate tool rounds; consecutive assistant turns
+              violate role-alternation and cause the API to return empty responses.
     """
     # Drop empty-content turns — they are invalid API messages and confuse the model.
     turns = [t for t in turns if t.get("content")]
@@ -327,4 +330,24 @@ def _sanitize_tool_pairs(turns: list[dict]) -> list[dict]:
                     continue
         final.append(turn)
 
-    return final
+    # Pass 3 — merge consecutive assistant turns so role-alternation is preserved.
+    # Pass 2 already stripped orphaned tool_use, so merged content will be text-only.
+    p3: list[dict] = []
+    for turn in final:
+        if p3 and p3[-1].get("role") == "assistant" == turn.get("role"):
+            prev = p3[-1].get("content")
+            curr = turn.get("content")
+            if isinstance(prev, list) and isinstance(curr, list):
+                p3[-1] = {**p3[-1], "content": prev + curr}
+            elif isinstance(prev, str) and isinstance(curr, str):
+                p3[-1] = {**p3[-1], "content": prev + "\n\n" + curr}
+            elif isinstance(prev, str) and isinstance(curr, list):
+                p3[-1] = {**p3[-1], "content": [{"type": "text", "text": prev}] + curr}
+            elif isinstance(prev, list) and isinstance(curr, str):
+                p3[-1] = {**p3[-1], "content": prev + [{"type": "text", "text": curr}]}
+            else:
+                p3.append(turn)
+        else:
+            p3.append(turn)
+
+    return p3

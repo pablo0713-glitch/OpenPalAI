@@ -87,9 +87,14 @@ def _sanitize_history(history: list) -> list:
     while history and _get_role(history[-1]) == "user" and not _is_tool_result_turn(history[-1]):
         history = history[:-1]
 
+    # Pass 3 — ensure history starts with a user turn; a leading assistant turn
+    # violates role-alternation and causes the API to return empty responses.
+    while history and _get_role(history[0]) != "user":
+        history = history[1:]
+
     if len(history) != n_before:
         logger.warning(
-            "Sanitized history tail: %d → %d turns (stripped unresponded user messages)",
+            "Sanitized history: %d → %d turns (stripped tail/leading role violations)",
             n_before, len(history),
         )
 
@@ -234,33 +239,34 @@ class AgentCore:
             context.display_name, person_id=person_id,
         )
 
-        for turn in assistant_turns:
+        # Persist only the final assistant text reply. Intermediate tool_use /
+        # tool_result turns and mixed text+tool_use turns are discarded — the
+        # final reply already incorporates everything the tools returned. Storing
+        # intermediate turns balloons context and creates consecutive same-role
+        # turns that cause the model to return empty responses.
+        final_reply: dict | None = None
+        for turn in reversed(assistant_turns):
+            if turn.get("role") != "assistant":
+                continue
             content = turn.get("content")
             if not content:
                 continue
-            # Skip intermediate tool_use-only assistant turns — the final text
-            # response already incorporates what the tools returned.
-            if turn["role"] == "assistant" and isinstance(content, list):
-                has_text = any(
-                    (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "text"
-                    for b in content
-                )
-                if not has_text:
-                    continue
-            # Skip tool_result user turns for the same reason.
-            if turn["role"] == "user" and isinstance(content, list):
-                all_results = all(
-                    (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_result"
-                    for b in content
-                )
-                if all_results:
-                    continue
+            if isinstance(content, list):
+                text_blocks = [
+                    b for b in content
+                    if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "text"
+                ]
+                if text_blocks:
+                    final_reply = {"role": "assistant", "content": text_blocks}
+                    break
+            elif isinstance(content, str) and content:
+                final_reply = turn
+                break
+
+        if final_reply:
             await self._memory.append_turn(
-                context.user_id,
-                context.channel_id,
-                context.platform,
-                turn["role"],
-                turn["content"],
+                context.user_id, context.channel_id, context.platform,
+                final_reply["role"], final_reply["content"],
                 person_id=person_id,
             )
 

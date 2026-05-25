@@ -1,0 +1,21 @@
+# Excluded from the container build context.
+# Sensitive and runtime-generated files — these are volume-mounted at runtime.
+.env
+data/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Git
+.git/
+.github/
+
+# Editor / OS
+.vscode/
+*.code-workspace
+.DS_Store

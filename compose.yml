@@ -1,0 +1,19 @@
+services:
+  trixxie:
+    build: .
+    container_name: trixxie
+    restart: unless-stopped
+    ports:
+      # Bind to localhost only — Nginx handles public HTTPS access.
+      # Change to "8080:8080" if you want direct external access without Nginx.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # Persistent agent data (memory, config, sessions, ChromaDB vectors).
+      - ./data:/app/data:Z
+      # ChromaDB ONNX model cache — persists across rebuilds so the ~80 MB
+      # embedding model is only downloaded once.
+      - ./data/.cache:/root/.cache:Z
+      # Environment variables — read-only, never baked into the image.
+      - ./.env:/app/.env:ro,Z
+    environment:
+      - PYTHONUNBUFFERED=1

@@ -72,6 +72,9 @@ REQUIRED_FILES = [
     "lua/agent_companion.lua.template",
     "setup/index.html",
     "setup/wizard.js",
+    "Containerfile",
+    "compose.yml",
+    "scripts/check_updates.sh",
 ]
 
 

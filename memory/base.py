@@ -19,6 +19,8 @@ class AbstractMemoryStore(ABC):
         role: str,
         content: str | list[Any],
         display_name: str = "",
+        *,
+        person_id: str = "",
     ) -> None:
         """Append a single turn (role + content) to conversation history."""
 

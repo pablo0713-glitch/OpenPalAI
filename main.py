@@ -10,8 +10,13 @@ from pathlib import Path
 
 from config.settings import load_settings
 from core.agent import AgentCore
+from core.librarian_agent import LibrarianAgent
+from core.memory_curator import MemoryCuratorAgent
 from core.model_adapter import create_adapter
+from core.persona import get_agent_config
 from core.rate_limiter import RateLimiter
+from core.recall_agent import SemanticRecallAgent
+from core.supporting_agent import make_supporting_adapter
 from core.tools import ToolRegistry
 from interfaces.discord_bot.bot import TrixxieBot
 from interfaces.debug_server import create_debug_router, install_log_handler
@@ -21,9 +26,11 @@ from interfaces.sl_bridge.server import create_sl_app
 from memory.consolidator import MemoryConsolidator
 from memory.file_store import FileMemoryStore
 from memory.avatar_store import AvatarStore
+from memory.library_store import LibraryStore
 from memory.location_store import LocationStore
 from memory.person_map import PersonMap
 from memory.session_index import SessionIndex
+from memory.vector_store import VectorMemoryStore
 
 PERSON_MAP_PATH = os.path.join(os.path.dirname(__file__), "data", "person_map.json")
 CONSOLIDATION_INTERVAL_SECS = 6 * 3600  # every 6 hours
@@ -33,6 +40,70 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+async def _backfill_vector_store(
+    session_index: SessionIndex,
+    vector_store: VectorMemoryStore,
+    person_map: PersonMap,
+) -> None:
+    """Index all existing sessions.db rows into ChromaDB if not already there.
+    Runs as a fire-and-forget background task on startup.
+    Safe to re-run — ChromaDB upsert is idempotent by session_id doc id.
+    """
+    import aiosqlite
+    db_path = session_index._db_path
+    await session_index._ensure_ready()
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT id, user_id, channel_id, platform, role, content, "
+                "timestamp, display_name, importance FROM sessions ORDER BY id ASC"
+            ) as cur:
+                batch = []
+                processed = 0
+                async for row in cur:
+                    batch.append(dict(row))
+                    if len(batch) >= 100:
+                        for r in batch:
+                            # Resolve person_id from PersonMap
+                            pid = person_map.get_person_id(r["user_id"]) or r["user_id"]
+                            if not await vector_store.has_document(pid, r["id"]):
+                                meta = {
+                                    "user_id": r["user_id"],
+                                    "channel_id": r["channel_id"],
+                                    "platform": r["platform"],
+                                    "role": r["role"],
+                                    "timestamp": r["timestamp"],
+                                    "display_name": r["display_name"],
+                                    "importance": float(r["importance"]),
+                                }
+                                await vector_store.add_turn(pid, r["id"], r["content"], meta)
+                        processed += len(batch)
+                        if processed % 1000 == 0:
+                            logger.info("Vector backfill: %d rows indexed", processed)
+                        batch = []
+                        await asyncio.sleep(0.1)
+                # Final partial batch
+                for r in batch:
+                    pid = person_map.get_person_id(r["user_id"]) or r["user_id"]
+                    if not await vector_store.has_document(pid, r["id"]):
+                        meta = {
+                            "user_id": r["user_id"],
+                            "channel_id": r["channel_id"],
+                            "platform": r["platform"],
+                            "role": r["role"],
+                            "timestamp": r["timestamp"],
+                            "display_name": r["display_name"],
+                            "importance": float(r["importance"]),
+                        }
+                        await vector_store.add_turn(pid, r["id"], r["content"], meta)
+                processed += len(batch)
+        if processed:
+            logger.info("Vector backfill complete: %d rows processed", processed)
+    except Exception as exc:
+        logger.warning("Vector backfill failed: %s", exc)
 
 
 async def _run_setup_wizard_only() -> None:
@@ -68,21 +139,43 @@ async def main() -> None:
 
     os.makedirs(settings.memory_dir, exist_ok=True)
     os.makedirs(settings.notes_dir, exist_ok=True)
+    os.makedirs(settings.library_dir, exist_ok=True)
 
     session_index = SessionIndex(db_path=Path(settings.memory_dir) / "sessions.db")
-    memory = FileMemoryStore(settings.memory_dir, settings.memory_max_history, session_index)
+    vector_store = VectorMemoryStore(settings.memory_dir)
+    memory = FileMemoryStore(
+        settings.memory_dir, settings.memory_max_history, session_index, vector_store
+    )
     sensor_store = SensorStore()
     location_store = LocationStore(settings.memory_dir)
     avatar_store = AvatarStore(settings.memory_dir)
+    library_store = LibraryStore(settings.library_dir)
 
     # Backfill display names into any existing session rows that predate this field.
     known_avatars = await avatar_store.get_all()
     if known_avatars:
         avatar_map = {uid: entry["display_name"] for uid, entry in known_avatars.items() if entry.get("display_name")}
         await session_index.backfill_display_names(avatar_map)
-    tool_registry = ToolRegistry(settings, session_index)
-    rate_limiter = RateLimiter(settings.rate_limit_capacity, settings.rate_limit_refill_rate)
+
+    # Build per-agent adapters from agent_config.json["supporting_agents"]
     adapter = create_adapter(settings)
+    agent_cfg = get_agent_config()
+
+    curator_adapter = make_supporting_adapter(settings, agent_cfg, "memory_curator")
+    curator = MemoryCuratorAgent(curator_adapter)
+
+    librarian_adapter = make_supporting_adapter(settings, agent_cfg, "librarian")
+    librarian_agent = LibrarianAgent(librarian_adapter, library_store)
+
+    recall_adapter = make_supporting_adapter(settings, agent_cfg, "semantic_recall")
+    recall_agent = SemanticRecallAgent(recall_adapter, vector_store)
+
+    tool_registry = ToolRegistry(
+        settings, session_index,
+        librarian_agent=librarian_agent,
+        recall_agent=recall_agent,
+    )
+    rate_limiter = RateLimiter(settings.rate_limit_capacity, settings.rate_limit_refill_rate)
 
     person_map = PersonMap.load(PERSON_MAP_PATH)
     logger.info("Person map loaded: %d person(s) linked", len(person_map.all_persons()))
@@ -92,6 +185,9 @@ async def main() -> None:
         memory_store=memory,
         person_map=person_map,
         notes_dir=settings.notes_dir,
+        curator=curator,
+        session_index=session_index,
+        importance_threshold=settings.importance_threshold,
     )
 
     agent = AgentCore(
@@ -101,7 +197,11 @@ async def main() -> None:
         rate_limiter=rate_limiter,
         settings=settings,
         person_map=person_map,
+        library_store=library_store,
     )
+
+    # Backfill existing sessions.db turns into ChromaDB (fire-and-forget)
+    asyncio.create_task(_backfill_vector_store(session_index, vector_store, person_map))
 
     tasks = []
 

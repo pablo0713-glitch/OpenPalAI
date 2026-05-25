@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from config.settings import Settings
 from core.persona import MessageContext
@@ -250,12 +250,78 @@ MEMORY_SCHEMA = {
 }
 
 
+LIBRARY_LOOKUP_SCHEMA = {
+    "name": "library_lookup",
+    "description": (
+        "Look up a reference module from the Situational Library. "
+        "Use when you need detailed lore, world-building, rules, or reference information "
+        "not already in your current context. Search by keyword or retrieve by exact module id."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Keyword search across module titles and descriptions.",
+            },
+            "module_id": {
+                "type": "string",
+                "description": "Exact module id to retrieve in full.",
+            },
+        },
+    },
+}
+
+LIBRARY_LIST_SCHEMA = {
+    "name": "library_list",
+    "description": "List available Situational Library modules with their descriptions and ids.",
+    "input_schema": {"type": "object", "properties": {}, "required": []},
+}
+
+SEMANTIC_RECALL_SCHEMA = {
+    "name": "semantic_recall",
+    "description": (
+        "Search conversation history by meaning rather than exact keywords. "
+        "Use when looking for something thematically related — e.g. 'conversations about "
+        "building projects' or 'times someone seemed upset'. "
+        "Complements session_search (which matches exact keywords)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Describe what you are looking for in natural language.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max results to return. Default 5, max 10.",
+                "default": 5,
+            },
+            "importance_threshold": {
+                "type": "number",
+                "description": "Only return turns scored at or above this importance (0.0–1.0). Optional.",
+            },
+        },
+        "required": ["query"],
+    },
+}
+
+
 # ------------------------------------------------------------------ registry
 
 class ToolRegistry:
-    def __init__(self, settings: Settings, session_index: SessionIndex | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        session_index: SessionIndex | None = None,
+        librarian_agent: Optional[Any] = None,
+        recall_agent: Optional[Any] = None,
+    ) -> None:
         self._settings = settings
         self._session_index = session_index
+        self._librarian_agent = librarian_agent
+        self._recall_agent = recall_agent
 
     def get_definitions(self, context: MessageContext) -> list[dict]:
         from core.persona import get_agent_config
@@ -272,6 +338,10 @@ class ToolRegistry:
         if self._session_index is not None:
             tools.append(SESSION_QUERY_SCHEMA)
             tools.append(SESSION_SEARCH_SCHEMA)
+        if self._librarian_agent is not None:
+            tools.extend([LIBRARY_LOOKUP_SCHEMA, LIBRARY_LIST_SCHEMA])
+        if self._recall_agent is not None:
+            tools.append(SEMANTIC_RECALL_SCHEMA)
         return tools
 
     async def dispatch(
@@ -310,5 +380,22 @@ class ToolRegistry:
             if self._session_index is None:
                 return "Session search is not available."
             return await handle_session_search(tool_input, context, self._session_index)
+        elif name == "library_lookup":
+            if self._librarian_agent is None:
+                return "Library is not available."
+            from core.tool_handlers.library import handle_library_lookup
+            return await handle_library_lookup(tool_input, context, self._librarian_agent)
+        elif name == "library_list":
+            if self._librarian_agent is None:
+                return "Library is not available."
+            from core.tool_handlers.library import handle_library_list
+            from memory.library_store import LibraryStore
+            store = LibraryStore(self._settings.library_dir)
+            return await handle_library_list(tool_input, context, store)
+        elif name == "semantic_recall":
+            if self._recall_agent is None:
+                return "Semantic recall is not available."
+            from core.tool_handlers.semantic_recall import handle_semantic_recall
+            return await handle_semantic_recall(tool_input, context, self._recall_agent)
         else:
             return f"Unknown tool: {name}"

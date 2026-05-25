@@ -23,6 +23,7 @@ _SETUP_DIR = _ROOT / "setup"
 
 _PERSON_MAP_PATH = _ROOT / "data" / "person_map.json"
 _NOTES_DIR = _ROOT / "data" / "notes"
+_LIBRARY_DIR = _ROOT / "data" / "library"
 _CANONICAL_OWNER = "SL_Notes"
 
 _SENSITIVE_KEYS = {
@@ -252,6 +253,90 @@ def create_setup_router() -> APIRouter:
         results = _patch_scripts(body.url, body.secret, grid, body.triggers)
         ok = all(v == "ok" for v in results.values())
         return JSONResponse({"ok": ok, "results": results})
+
+    # ---- Library CRUD -------------------------------------------------------
+
+    @router.get("/setup/library")
+    async def library_list() -> JSONResponse:
+        from memory.library_store import LibraryStore
+        _LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+        store = LibraryStore(str(_LIBRARY_DIR))
+        return JSONResponse(store.list_modules())
+
+    @router.get("/setup/library/{module_id}")
+    async def library_get(module_id: str) -> JSONResponse:
+        from memory.library_store import LibraryStore
+        store = LibraryStore(str(_LIBRARY_DIR))
+        mod = store.get_by_id(module_id)
+        if mod is None:
+            return JSONResponse({"error": f"Module '{module_id}' not found."}, status_code=404)
+        return JSONResponse({
+            "id": mod.id, "title": mod.title, "description": mod.description,
+            "always_on": mod.always_on, "platforms": mod.platforms, "tags": mod.tags,
+            "content": mod.content, "filename": mod.filename,
+        })
+
+    class _LibraryWriteBody(BaseModel):
+        filename: str
+        content: str
+
+    @router.post("/setup/library")
+    async def library_write(body: _LibraryWriteBody) -> JSONResponse:
+        filename = body.filename.strip()
+        if not filename.endswith(".md"):
+            filename += ".md"
+        # Sanitize: only allow safe filenames
+        safe = re.sub(r"[^a-zA-Z0-9_\-. ]", "", filename).strip()
+        if not safe:
+            return JSONResponse({"error": "Invalid filename."}, status_code=400)
+        _LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+        path = _LIBRARY_DIR / safe
+        path.write_text(body.content, encoding="utf-8")
+        return JSONResponse({"ok": True, "filename": safe})
+
+    @router.delete("/setup/library/{module_id}")
+    async def library_delete(module_id: str) -> JSONResponse:
+        from memory.library_store import LibraryStore
+        store = LibraryStore(str(_LIBRARY_DIR))
+        mod = store.get_by_id(module_id)
+        if mod is None:
+            return JSONResponse({"error": f"Module '{module_id}' not found."}, status_code=404)
+        path = _LIBRARY_DIR / mod.filename
+        if path.exists():
+            path.unlink()
+        return JSONResponse({"ok": True})
+
+    # ---- Supporting agents config -------------------------------------------
+
+    @router.get("/setup/agents")
+    async def agents_get() -> JSONResponse:
+        agent_cfg: dict = {}
+        if _CONFIG_PATH.exists():
+            try:
+                agent_cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        from core.persona import get_default_config
+        defaults = get_default_config()
+        supporting = agent_cfg.get("supporting_agents", defaults.get("supporting_agents", {}))
+        return JSONResponse(supporting)
+
+    class _AgentsCfgBody(BaseModel):
+        supporting_agents: dict
+
+    @router.post("/setup/agents")
+    async def agents_save(body: _AgentsCfgBody) -> JSONResponse:
+        agent_cfg: dict = {}
+        if _CONFIG_PATH.exists():
+            try:
+                agent_cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        agent_cfg["supporting_agents"] = body.supporting_agents
+        _CONFIG_PATH.write_text(json.dumps(agent_cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+        from core.persona import reload_agent_config
+        reload_agent_config()
+        return JSONResponse({"ok": True})
 
     return router
 

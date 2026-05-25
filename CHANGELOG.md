@@ -4,6 +4,59 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ---
 
+## 2026-05-25
+
+### Added
+
+- **Multi-Agent Architecture** — `SupportingAgent` base class (`core/supporting_agent.py`) for specialist background agents. Each agent has its own `ModelAdapter` (independently configurable provider + model via the wizard's new Agents step), a focused system prompt, and an `asyncio.Lock`. `make_supporting_adapter()` reads `agent_config.json["supporting_agents"]` and falls back to the main model when unconfigured.
+
+- **Memory Curator Agent** (`core/memory_curator.py`) — Scores every conversation turn 0.0–1.0 for long-term value. Batches 20 turns per `create_simple()` call (Haiku by default). Sentinel: -1.0 = unscored. `should_consolidate()` acts as a lightweight gate before the full consolidation model call. `_extract_json()` uses `re.search(r"\{.*\}", text, DOTALL)` as a fallback when the model wraps JSON in prose or markdown fences.
+
+- **Importance scoring column in `sessions.db`** — `importance REAL DEFAULT -1.0`. Migrated via `_MIGRATE_IMPORTANCE_STMTS` (follows existing migration pattern). New `SessionIndex` methods: `set_importance_batch()` (single-transaction bulk update for all scores), `get_unscored_turns()`, `get_high_importance_turns()`. `index_turn()` now returns `int | None` (the inserted row id) — non-breaking.
+
+- **Semantic Memory (ChromaDB)** (`memory/vector_store.py`) — `VectorMemoryStore` wraps a ChromaDB PersistentClient at `data/memory/chroma/`. Bundled ONNXMiniLM-L6-v2 embeddings — no PyTorch or sentence-transformers. All ChromaDB calls run in `run_in_executor(None, …)` to avoid blocking the event loop. One collection per `person_id` (`mem_{safe_id}`). Doc ID = SQLite rowid — links FTS5 and vector stores permanently.
+
+- **Startup backfill** — `_backfill_vector_store()` in `main.py` indexes all existing `sessions.db` rows into ChromaDB on startup. Runs as a fire-and-forget background task in batches of 100 with 100 ms sleep. Idempotent via `has_document()`.
+
+- **Semantic Recall Agent** (`core/recall_agent.py`) — Wraps `VectorMemoryStore.semantic_search()` with a reasoning pass that filters noise and annotates which results are actually relevant. Available as the `semantic_recall` tool when wired. Result format: `[PLATFORM | DATE | NAME · role | sim:0.87] content...`.
+
+- **Library System** (`memory/library_store.py`, `data/library/`) — Drop-in Markdown reference modules with YAML-like front-matter (no PyYAML dep). Fields: `id`, `title`, `description`, `always_on`, `platforms`, `tags`. Always-on modules injected into Block 2 (uncached) on every matching-platform message, capped at `library_always_on_cap` chars. On-demand modules retrieved via the `library_lookup` tool.
+
+- **Librarian Agent** (`core/librarian_agent.py`) — Retrieves relevant library modules using a keyword search followed by a reasoning pass. Avoids returning irrelevant keyword matches by reasoning about the current context before returning results.
+
+- **System Prompt Block 2** — New uncached block inserted between Block 0 (static, cached) and Block 1 (dynamic) for always-on library modules. Block 0's `cache_control: ephemeral` remains stable.
+
+- **Wizard Step 7 "Agents"** — New 8th step between Context and Save. Per-agent provider dropdown + model name input for `memory_curator`, `librarian`, and `semantic_recall`. Reads from and writes to `agent_config.json["supporting_agents"]`. Leave model blank to inherit the main agent's model.
+
+- **Library CRUD API** — `GET/POST /setup/library` and `GET/DELETE /setup/library/{id}` endpoints in `interfaces/setup_server.py`. Supports creating, reading, listing, and deleting library modules from the wizard or directly via API.
+
+- **`GET /setup/agents`** and **`POST /setup/agents`** — Read and update the `supporting_agents` config block. `POST` calls `reload_agent_config()` so changes take effect without a full restart.
+
+- **`run.bat`** — Windows launcher equivalent of `run.sh`. Creates the venv if it doesn't exist, activates it, and starts `main.py`.
+
+- **`check_install.py`** — Installation smoke test. Verifies 21 required files and 37 module imports (including all Phase 2 additions) without starting any server or writing to `data/`. Platform-aware: checks `run.bat` on Windows, `run.sh` on Linux/Mac. Exit 0 = clean install, exit 1 = something missing or unimportable.
+
+- **CI: `.github/workflows/install-check.yml`** — Runs `pip install -r requirements.txt` + `python check_install.py` on every push and PR to `main`. Matrix: `ubuntu-latest` × `windows-latest` × Python 3.11 + 3.12 (4 jobs).
+
+- **Documentation** — `ARCHITECTURE.md` fully updated to reflect Phase 2 (multi-agent diagram, memory layers, system prompt Block 2, threading diagram). New `MEMORY_SYSTEM.md` is a comprehensive standalone reference for all 6 memory layers, the consolidation pipeline, supporting agent models, environment variables, and a full test checklist.
+
+### Changed
+
+- **Memory consolidation pipeline** now scores unscored turns via `MemoryCuratorAgent` before building the transcript, filters the transcript to high-importance turns (≥ `importance_threshold`, default 0.6), and uses `should_consolidate()` as a gate before invoking the main model. Behavior is unchanged when no curator is wired.
+- **`FileMemoryStore.append_turn()`** fires `_index_and_vectorize()` as a background task after each write — chains `SessionIndex.index_turn()` (returns row id) → `VectorMemoryStore.add_turn()`.
+- **SQLite WAL mode** enabled on `sessions.db` via `PRAGMA journal_mode=WAL`. Prevents "database is locked" errors when the startup backfill and importance score writes run concurrently.
+- **Wizard step count** increased from 7 to 8. Old Step 7 (Save) is now Step 8.
+- **`chromadb>=1.5.9`** added to `requirements.txt` as a required dependency.
+- **README** updated: capabilities table, wizard step-by-step, memory section (7-layer table + consolidation pipeline + library module guide), project layout, environment variables, troubleshooting.
+
+### Fixed
+
+- **`MemoryCuratorAgent` JSON truncation** — `max_tokens` raised from 256 to 600 for scoring batches. At 256, responses for 20-turn batches were truncated mid-JSON, causing silent fallback to empty score maps.
+- **`data/agent_config.json` control characters** — Pre-existing issue where literal newline bytes inside JSON string values caused `json.loads()` to fail at startup. Detected and re-serialized cleanly.
+- **Wizard "Step 7" script section references** — Wizard UI and README updated to reflect correct step numbers after inserting the new Agents step.
+
+---
+
 ## 2026-05-12
 
 ### Added

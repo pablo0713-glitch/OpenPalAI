@@ -11,6 +11,7 @@ import aiofiles
 from memory.base import AbstractMemoryStore
 from memory.schemas import ConversationFile, FactsFile
 from memory.session_index import SessionIndex
+from memory.vector_store import VectorMemoryStore
 
 
 class FileMemoryStore(AbstractMemoryStore):
@@ -21,10 +22,12 @@ class FileMemoryStore(AbstractMemoryStore):
         memory_dir: str,
         max_history: int,
         session_index: SessionIndex | None = None,
+        vector_store: VectorMemoryStore | None = None,
     ) -> None:
         self._memory_dir = memory_dir
         self._max_history = max_history
         self._session_index = session_index
+        self._vector_store = vector_store
         # Per-(user_id, channel_id) locks to prevent write races
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
@@ -64,6 +67,8 @@ class FileMemoryStore(AbstractMemoryStore):
         role: str,
         content: str | list[Any],
         display_name: str = "",
+        *,
+        person_id: str = "",
     ) -> None:
         async with self._lock(user_id, channel_id):
             path = self._conv_path(user_id, channel_id)
@@ -87,10 +92,38 @@ class FileMemoryStore(AbstractMemoryStore):
             text = content if isinstance(content, str) else _text_from_content(content)
             if text:
                 asyncio.create_task(
-                    self._session_index.index_turn(
-                        user_id, channel_id, platform, role, text, _now(), display_name
+                    self._index_and_vectorize(
+                        user_id, channel_id, platform, role, text, display_name,
+                        person_id=person_id,
                     )
                 )
+
+    async def _index_and_vectorize(
+        self,
+        user_id: str,
+        channel_id: str,
+        platform: str,
+        role: str,
+        text: str,
+        display_name: str,
+        *,
+        person_id: str = "",
+    ) -> None:
+        """Fire-and-forget: index in FTS5 and (if available) ChromaDB."""
+        session_id = await self._session_index.index_turn(
+            user_id, channel_id, platform, role, text, _now(), display_name
+        )
+        if self._vector_store is not None and session_id is not None and person_id:
+            metadata = {
+                "user_id": user_id,
+                "channel_id": channel_id,
+                "platform": platform,
+                "role": role,
+                "timestamp": _now(),
+                "display_name": display_name,
+                "importance": -1.0,
+            }
+            await self._vector_store.add_turn(person_id, session_id, text, metadata)
 
     async def trim_history(self, user_id: str, channel_id: str, max_turns: int) -> None:
         async with self._lock(user_id, channel_id):

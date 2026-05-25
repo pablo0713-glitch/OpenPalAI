@@ -86,8 +86,8 @@ const D = {
 };
 
 const MASK = '••••••••';
-const TOTAL = 7;
-const STEP_NAMES = ['Agent', 'Model', 'Platforms', 'Identity', 'Tools', 'Context', 'Save'];
+const TOTAL = 8;
+const STEP_NAMES = ['Agent', 'Model', 'Platforms', 'Identity', 'Tools', 'Context', 'Agents', 'Save'];
 
 // ============================================================
 // State
@@ -132,6 +132,11 @@ const state = {
   sl_action_enabled: true,
   voice_enabled: false,
   additional_context: '',
+  supporting_agents: {
+    memory_curator:  { model_provider: 'anthropic', model_name: 'claude-haiku-4-5-20251001' },
+    librarian:       { model_provider: 'anthropic', model_name: 'claude-haiku-4-5-20251001' },
+    semantic_recall: { model_provider: 'anthropic', model_name: 'claude-sonnet-4-6' },
+  },
 };
 
 let currentStep = 1;
@@ -246,6 +251,14 @@ function applyConfig(config) {
   if (t.notes !== undefined) state.notes_enabled = t.notes;
   if (t.sl_action !== undefined) state.sl_action_enabled = t.sl_action;
   if (t.voice     !== undefined) state.voice_enabled     = t.voice;
+
+  if (ag.supporting_agents && typeof ag.supporting_agents === 'object') {
+    for (const key of ['memory_curator', 'librarian', 'semantic_recall']) {
+      if (ag.supporting_agents[key]) {
+        state.supporting_agents[key] = { ...state.supporting_agents[key], ...ag.supporting_agents[key] };
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -877,10 +890,63 @@ function collectStep6() {
 }
 
 // ============================================================
-// Step 7 — Review & Save
+// Step 7 — Supporting Agents
 // ============================================================
 
 function buildStep7() {
+  function agentBlock(key, label, desc) {
+    const a = state.supporting_agents[key] || {};
+    const p = a.model_provider || 'anthropic';
+    const m = a.model_name || '';
+    return `
+      <div class="form-group" style="margin-bottom:1.5rem">
+        <label class="form-label">${label}</label>
+        <p class="text-dim" style="margin:0.25rem 0 0.5rem">${desc}</p>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.5rem;align-items:center">
+          <select id="f-${key}-provider" class="form-input" onchange="collectStep7()">
+            <option value="anthropic"  ${p==='anthropic'  ?'selected':''}>Anthropic</option>
+            <option value="openai"     ${p==='openai'     ?'selected':''}>OpenAI</option>
+            <option value="openrouter" ${p==='openrouter' ?'selected':''}>OpenRouter</option>
+            <option value="gemini"     ${p==='gemini'     ?'selected':''}>Gemini</option>
+            <option value="grok"       ${p==='grok'       ?'selected':''}>Grok</option>
+            <option value="ollama"     ${p==='ollama'     ?'selected':''}>Ollama</option>
+            <option value="lm_studio"  ${p==='lm_studio'  ?'selected':''}>LM Studio</option>
+          </select>
+          <input id="f-${key}-model" class="form-input" type="text"
+                 value="${esc(m)}" placeholder="e.g. claude-haiku-4-5-20251001"
+                 onchange="collectStep7()">
+        </div>
+      </div>`;
+  }
+
+  return `
+    <h2 class="step-heading">Supporting Agents</h2>
+    <p class="step-desc">Each background agent can use a different model. Cheaper/faster models work well for scoring and retrieval — save the main model for the conversation.</p>
+
+    <div class="callout callout-info" style="margin-bottom:1.5rem">
+      Leave the model name blank to inherit the main agent's model. Changes take effect on restart.
+    </div>
+
+    ${agentBlock('memory_curator',  'Memory Curator',  'Scores conversation turns for long-term importance (runs every 6 h).')}
+    ${agentBlock('librarian',       'Librarian',        'Finds and retrieves relevant library modules on demand.')}
+    ${agentBlock('semantic_recall', 'Semantic Recall',  'Searches conversation history by meaning (on-demand tool call).')}`;
+}
+
+function collectStep7() {
+  for (const key of ['memory_curator', 'librarian', 'semantic_recall']) {
+    const provider = val(`f-${key}-provider`);
+    const model    = val(`f-${key}-model`);
+    if (provider) {
+      state.supporting_agents[key] = { model_provider: provider, model_name: model };
+    }
+  }
+}
+
+// ============================================================
+// Step 8 — Review & Save
+// ============================================================
+
+function buildStep8() {
   const modelLabel = (() => {
     const p = state.model_provider;
     if (p === 'anthropic')  return state.claude_model;
@@ -935,7 +1001,7 @@ function buildStep7() {
     </div>`;
 }
 
-async function bindStep7() {
+async function bindStep8() {
   const section = document.getElementById('script-section');
   if (!section) return;
   try {
@@ -1020,12 +1086,12 @@ function _downloadScript(filename, content) {
 
 const builders = {
   1: buildStep1, 2: buildStep2, 3: buildStep3,
-  4: buildStep4, 5: buildStep5, 6: buildStep6, 7: buildStep7,
+  4: buildStep4, 5: buildStep5, 6: buildStep6, 7: buildStep7, 8: buildStep8,
 };
-const binders = { 1: bindStep1, 3: () => updateScriptSnippet(), 7: bindStep7 };
+const binders = { 1: bindStep1, 3: () => updateScriptSnippet(), 8: bindStep8 };
 const collectors = {
   1: collectStep1, 2: collectStep2, 3: collectStep3,
-  4: collectStep4, 5: collectStep5, 6: collectStep6,
+  4: collectStep4, 5: collectStep5, 6: collectStep6, 7: collectStep7,
 };
 
 function renderStep(n) {
@@ -1082,6 +1148,7 @@ async function save() {
         sl_action:  state.sl_action_enabled,
         voice:      state.voice_enabled,
       },
+      supporting_agents: state.supporting_agents,
     },
   };
 

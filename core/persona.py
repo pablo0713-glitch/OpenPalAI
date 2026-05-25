@@ -52,7 +52,6 @@ _DEFAULT_IDENTITY: dict[str, str] = {
 _DEFAULT_CONFIG: dict = {
     "agent_name": "Aria",
     "additional_context": "",
-    "additional_context": "",
     "tools": {
         "web_search": True,
         "notes": True,
@@ -122,6 +121,20 @@ _DEFAULT_CONFIG: dict = {
             "- after 40 turns, consolidate into personal notes\n"
             "- keep only what matters; trim the rest"
         ),
+    },
+    "supporting_agents": {
+        "memory_curator": {
+            "model_provider": "anthropic",
+            "model_name": "claude-haiku-4-5-20251001",
+        },
+        "librarian": {
+            "model_provider": "anthropic",
+            "model_name": "claude-haiku-4-5-20251001",
+        },
+        "semantic_recall": {
+            "model_provider": "anthropic",
+            "model_name": "claude-sonnet-4-6",
+        },
     },
 }
 
@@ -281,9 +294,10 @@ def build_system_prompt(
     facts: dict[str, str],
     memory_files: str = "",
     stm_bridge: str = "",
+    library_context: str = "",
 ) -> str:
     """Flat string version used by Ollama adapter."""
-    blocks = build_system_prompt_blocks(context, facts, memory_files, stm_bridge)
+    blocks = build_system_prompt_blocks(context, facts, memory_files, stm_bridge, library_context)
     return "\n\n".join(b.get("text", "") for b in blocks if isinstance(b, dict))
 
 
@@ -292,11 +306,13 @@ def build_system_prompt_blocks(
     facts: dict[str, str],
     memory_files: str = "",
     stm_bridge: str = "",
+    library_context: str = "",
 ) -> list[dict]:
     """Return the system prompt as a list of Anthropic content blocks.
 
     Block 0 (static, cache_control=ephemeral): identity, platform rules, memory files, facts.
     Block 1 (dynamic, no cache): STM bridge + SL sensor context + recent locations.
+    Block 2 (uncached, optional): always-on library modules — separate to preserve Block 0 cache.
     """
     cfg = get_agent_config()
 
@@ -336,10 +352,15 @@ def build_system_prompt_blocks(
         if context.sl_known_avatar:
             dynamic_parts.append(_format_known_avatar(context.sl_known_avatar))
 
-    if dynamic_parts:
-        return [static_block, {"type": "text", "text": "\n\n".join(dynamic_parts)}]
+    blocks: list[dict] = [static_block]
 
-    return [static_block]
+    if dynamic_parts:
+        blocks.append({"type": "text", "text": "\n\n".join(dynamic_parts)})
+
+    if library_context:
+        blocks.append({"type": "text", "text": library_context})
+
+    return blocks
 
 
 # ------------------------------------------------------------------ formatters

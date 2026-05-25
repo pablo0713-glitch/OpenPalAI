@@ -1,9 +1,5 @@
 # Pending Issues for Next Session
 
-1. **Radar Position and Altitude**: Ensure `Pos.` and `Alt.` from the radar data are correctly formatted, passed through the payload, and visible in the debug/sensor store.
-2. **Radar List Refreshing**: The radar list in the debug tool is not automatically updating. Need to investigate the `scan_avatars()` periodic polling or the backend state to see why it requires a Lua script reload to see updates.
-3. **LSL Scene Object Data**: Implement and map the scene object sensory data coming from the LSL script (`companion_bridge.lsl`).
-
 FUTURE ROADMAP:
 
 Phase 1: Structural Modernization & Orchestration
@@ -42,4 +38,6 @@ Expanding Trixxie’s ability to "Act" rather than just "Speak."
     Debug Session Query UI:
         Build a visual explorer for sessions.db within the /debug panel, allowing developers to see the "hidden" reasoning turns and tool results that the user never sees.
 
-Addendum: The above is subject to change based on possible implementation of Karpathy's LLM wiki.
+Addendum: If this is a better solution, we can use Karpathy's LLM wiki system, especially for the situation library system.
+
+We also want to use mutliple agents where ever it makes sense.

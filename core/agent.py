@@ -13,6 +13,7 @@ import time
 import aiofiles
 
 from config.settings import Settings
+from core.librarian_agent import LibrarianAgent
 from core.model_adapter import ModelAdapter
 from core.persona import (
     MessageContext,
@@ -25,6 +26,7 @@ from core.persona import (
 from core.rate_limiter import RateLimiter
 from core.tools import ToolRegistry
 from memory.base import AbstractMemoryStore
+from memory.library_store import LibraryStore
 from memory.person_map import PersonMap
 from memory.schemas import ConversationFile
 
@@ -111,6 +113,7 @@ class AgentCore:
         rate_limiter: RateLimiter,
         settings: Settings,
         person_map: Optional[PersonMap] = None,
+        library_store: Optional[LibraryStore] = None,
     ) -> None:
         self._adapter = adapter
         self._memory = memory
@@ -118,6 +121,7 @@ class AgentCore:
         self._rate_limiter = rate_limiter
         self._settings = settings
         self._person_map = person_map
+        self._library_store = library_store
         self._last_prompt: dict[str, str] = {}
         self._last_exchange: dict[str, dict] = {}
 
@@ -144,7 +148,26 @@ class AgentCore:
         else:
             context.person_id = context.user_id
 
-        system_blocks = build_system_prompt_blocks(context, facts, memory_files, stm_bridge)
+        # Always-on library modules → uncached Block 2 (preserves Block 0 cache)
+        library_context = ""
+        if self._library_store:
+            always_on = self._library_store.get_always_on(context.platform)
+            if always_on:
+                cap = getattr(self._settings, "library_always_on_cap", 4000)
+                parts = []
+                total = 0
+                for m in always_on:
+                    chunk = f"### {m.title}\n{m.content}"
+                    if total + len(chunk) > cap:
+                        break
+                    parts.append(chunk)
+                    total += len(chunk)
+                if parts:
+                    library_context = "## Active Library Modules\n\n" + "\n\n---\n\n".join(parts)
+
+        system_blocks = build_system_prompt_blocks(
+            context, facts, memory_files, stm_bridge, library_context
+        )
         # Flatten for debug display (blocks are passed directly to the adapter)
         system_flat = "\n\n".join(b["text"] for b in system_blocks)
         self._last_prompt[context.user_id] = system_flat
@@ -169,7 +192,10 @@ class AgentCore:
             "stm_bridge_chars": len(stm_bridge),
             "block0_chars": len(system_blocks[0]["text"]) if system_blocks else 0,
             "block1_chars": len(system_blocks[1]["text"]) if len(system_blocks) > 1 else 0,
+            "block2_chars": len(system_blocks[2]["text"]) if len(system_blocks) > 2 else 0,
             "has_block1": len(system_blocks) > 1,
+            "has_block2": len(system_blocks) > 2,
+            "library_context_chars": len(library_context),
         }
         messages = _sanitize_history(list(history)) + [{"role": "user", "content": message}]
 
@@ -199,11 +225,13 @@ class AgentCore:
             logger.warning("Empty reply_text for user %s — returning fallback", context.user_id)
             return AgentResponse(text="I lost that one — something cut me off mid-thought. Ask me again?")
 
+        person_id = context.person_id or context.user_id
+
         # Save user turn only after a successful response — prevents accumulating
         # unresponded user messages in history when the model returns empty.
         await self._memory.append_turn(
             context.user_id, context.channel_id, context.platform, "user", message,
-            context.display_name,
+            context.display_name, person_id=person_id,
         )
 
         for turn in assistant_turns:
@@ -215,6 +243,7 @@ class AgentCore:
                 context.platform,
                 turn["role"],
                 turn["content"],
+                person_id=person_id,
             )
 
         # Fire-and-forget STM entry generation

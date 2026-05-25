@@ -40,6 +40,16 @@ Both interfaces share the same `AgentCore`, `FileMemoryStore`, `LocationStore`, 
 main.py                          Entry point. Starts Discord bot, SL HTTP bridge,
                                  and memory consolidation loop concurrently via
                                  asyncio.gather().
+run.sh                           Linux/Mac launcher. Activates .venv and starts main.py.
+run.bat                          Windows launcher. Creates .venv if absent, activates,
+                                 starts main.py.
+check_install.py                 Installation smoke test. Verifies required files and
+                                 module imports without starting any server or writing
+                                 to data/. Platform-aware (run.sh vs run.bat check).
+                                 Exit 0 = clean, exit 1 = broken.
+.github/workflows/
+  install-check.yml              CI workflow. Runs pip install + check_install.py on
+                                 every push/PR. Matrix: ubuntu + windows × Py 3.11 + 3.12.
 
 config/
   settings.py                    Loads all configuration from environment variables.
@@ -94,10 +104,51 @@ core/
                                  format dicts regardless of provider — FileMemoryStore
                                  always receives plain dicts.
 
+  supporting_agent.py SupportingAgent  Base class for all specialist background agents.
+                                 Each instance holds its own ModelAdapter (allowing a
+                                 different provider/model than the main agent) and an
+                                 asyncio.Lock that prevents concurrent runs.
+                                 run(user_message, max_tokens) → str calls
+                                 adapter.create_simple() with the agent's focused system
+                                 prompt. No memory, tools, or persona — scoped calls only.
+                                 make_supporting_adapter(settings, agent_cfg, agent_name)
+                                 reads agent_cfg["supporting_agents"][name] and overrides
+                                 provider + model on a copy of Settings; falls back to the
+                                 main model if unconfigured.
+
+  memory_curator.py MemoryCuratorAgent(SupportingAgent)
+                                 Scores conversation turns 0.0–1.0 for long-term value.
+                                 score_turns(turns) → dict[int, float]: batches 20 turns
+                                 per create_simple() call; asks for JSON
+                                 {"scores":[{"id":int,"score":float}...]}; _extract_json()
+                                 strips prose/fences before parsing; falls back to {} on
+                                 error (turns stay -1.0, retried next cycle). max_tokens=600.
+                                 should_consolidate(transcript, existing_memory) → bool:
+                                 lightweight gate before the full consolidation model call;
+                                 defaults True on any error.
+
+  librarian_agent.py LibrarianAgent(SupportingAgent)
+                                 Retrieves relevant library modules using a reasoning pass.
+                                 find_relevant(query, context_summary) → list[LibraryModule]:
+                                 1. LibraryStore.search() for keyword candidates
+                                 2. create_simple() to rank/filter by relevance
+                                 3. Returns final list with relevance reasoning.
+                                 get_module(module_id) → str: direct retrieval, no reasoning.
+
+  recall_agent.py   SemanticRecallAgent(SupportingAgent)
+                                 Wraps VectorMemoryStore with a reasoning pass.
+                                 recall(person_id, query, n_results, importance_threshold)
+                                 → str: 1. vector_store.semantic_search() for candidates
+                                 2. create_simple() to filter noise + annotate relevance
+                                 3. Returns formatted, annotated results. Falls back to raw
+                                 results when the reasoning call fails.
+
   tools.py          ToolRegistry Holds tool schemas and dispatch logic.
                                  get_definitions(context) filters by platform —
                                  sl_action is only included when platform == "sl".
-                                 session_search only included when SessionIndex is wired up.
+                                 session_search/query included when SessionIndex is wired.
+                                 library_lookup/list included when LibrarianAgent is wired.
+                                 semantic_recall included when SemanticRecallAgent is wired.
 
   rate_limiter.py   RateLimiter  Per-user token bucket. In-memory. Prevents runaway
                                  usage — a polite slowdown, not a hard block.
@@ -121,37 +172,79 @@ core/
     session_query.py             Structured SQL query tool (speakers / turns modes).
                                  Supports date_from/date_to, platform, include_names,
                                  exclude_names, and limit filters.
+    library.py                   Delegates to LibrarianAgent.find_relevant() or
+                                 direct LibraryStore.get_by_id(). handle_library_list()
+                                 returns metadata-only list (no reasoning pass needed).
+    semantic_recall.py           Delegates to SemanticRecallAgent.recall(). Returns
+                                 formatted results with similarity score:
+                                 [PLATFORM | DATE | NAME · role | sim:0.87] content...
 
 memory/
   base.py           AbstractMemoryStore   Interface contract. Async methods:
                                           get_history, append_turn, get_facts,
                                           upsert_fact, get_all_conversations.
-                                          Swap implementations here.
+                                          append_turn() accepts person_id as keyword arg
+                                          (default "") for vector indexing.
   file_store.py     FileMemoryStore       JSON files on disk. Per-(user,channel)
                                           asyncio.Lock prevents write races.
                                           _serialize_content() converts Anthropic SDK
                                           objects to plain dicts via direct attribute
                                           access (avoids Pydantic MockValSer on Py 3.14).
-                                          append_turn() fires SessionIndex.index_turn()
-                                          as a background task after each write.
+                                          append_turn() fires _index_and_vectorize() as a
+                                          background task — chains SessionIndex.index_turn()
+                                          (returns row id) → VectorMemoryStore.add_turn()
+                                          when vector_store and person_id are set.
                                           _sanitize_tool_pairs() filters empty-content
                                           turns before orphan-cleanup passes — prevents
                                           invalid turns from accumulating via history trim.
   schemas.py                              Pydantic models for JSON file structure.
   person_map.py     PersonMap             Loads data/person_map.json. Maps canonical
                                           person IDs ↔ platform user IDs.
-  consolidator.py   MemoryConsolidator    Background task. Calls Claude to extract
-                                          bullet-point facts from conversations, appends
-                                          them to MEMORY.md (§-delimited, capped at 2,000
-                                          chars, oldest trimmed). Keeps markdown audit trail
-                                          at data/notes/SL_Notes/memories_YYYY-MM-DD.md.
-                                          Runs every 6 hours.
+  consolidator.py   MemoryConsolidator    Background task (every 6 hours). When
+                                          MemoryCuratorAgent is wired:
+                                          1. Calls curator.score_turns() on all unscored
+                                          turns per user_id, writes scores via
+                                          session_index.set_importance_batch() in one tx.
+                                          2. Filters transcript to high-importance turns
+                                          (threshold default 0.6).
+                                          3. curator.should_consolidate() gate — skips if
+                                          the curator says nothing new is worth adding.
+                                          Keeps markdown audit trail at
+                                          data/notes/SL_Notes/memories_YYYY-MM-DD.md.
   session_index.py  SessionIndex          SQLite FTS5 index of all conversation turns.
+                                          WAL mode enabled for concurrent read + write.
                                           Lazy-init; schema created on first write.
                                           index_turn() inserts into sessions table +
-                                          triggers FTS5 update. search(user_id, query)
-                                          returns ranked snippets scoped to one user.
+                                          triggers FTS5 update. Returns int | None (row id).
+                                          importance column (REAL, default -1.0 sentinel)
+                                          added via _MIGRATE_IMPORTANCE_STMTS.
+                                          set_importance_batch(scores) — single-transaction
+                                          UPDATE for all scores in one open/close cycle.
+                                          get_unscored_turns(user_id) / get_high_importance_turns()
+                                          for curator scoring pipeline.
                                           Database: data/memory/sessions.db.
+  vector_store.py   VectorMemoryStore     ChromaDB PersistentClient at
+                                          {memory_dir}/chroma/. Required dep.
+                                          One collection per person_id: mem_{safe_id}.
+                                          ALL public methods run in run_in_executor(None,…)
+                                          — ChromaDB is synchronous; executor prevents
+                                          event-loop blocking.
+                                          add_turn(person_id, session_id, content, metadata)
+                                          upserts by str(session_id) doc ID.
+                                          semantic_search(person_id, query, n_results,
+                                          importance_threshold) — optional where filter by
+                                          importance. Returns list of result dicts.
+                                          has_document(person_id, session_id) — used by
+                                          the startup backfill to avoid re-indexing.
+  library_store.py  LibraryStore          Parses data/library/*.md files with inline
+                                          YAML-like front-matter (no PyYAML dep).
+                                          LibraryModule dataclass: id, title, description,
+                                          always_on, platforms, tags, content, char_count.
+                                          get_always_on(platform) — modules to inject into
+                                          Block 2 on every message.
+                                          search(query, limit) — keyword match across
+                                          title + description + tags.
+                                          list_modules() — metadata only (no full content).
   location_store.py LocationStore         Persists SL region/parcel visit history.
                                           Per-user asyncio.Lock. Deduplicates by
                                           region+parcel key.
@@ -168,6 +261,13 @@ data/
     soul.md                               Tone, humor, quirks, conversational style.
     user.md                               Owner profile (name, role, preferences).
   person_map.json                         Canonical identity → platform ID list.
+  library/
+    *.md                                  Library modules with YAML front-matter block.
+                                          Fields: id, title, description, always_on (bool),
+                                          platforms (list), tags (list). Content follows.
+                                          always_on modules injected into Block 2 on every
+                                          message (capped at library_always_on_cap chars).
+                                          On-demand modules retrieved via library_lookup tool.
   memory/{safe_user_id}/
     {channel_id}.json                     Conversation turns per channel.
     _facts.json                           Persistent key/value facts about the user.
@@ -182,7 +282,14 @@ data/
                                           (~2,000 chars max; §-delimited entries).
     USER.md                               Owner preferences, style, background
                                           (~1,200 chars max; §-delimited entries).
-  memory/sessions.db                      SQLite FTS5 index of all conversation turns.
+  memory/sessions.db                      SQLite FTS5 index + importance scores.
+                                          WAL mode. Columns: id, user_id, channel_id,
+                                          platform, role, content, timestamp, display_name,
+                                          importance (REAL, default -1.0 = unscored).
+  memory/chroma/                          ChromaDB persistent vector store.
+                                          One collection per person_id: mem_{safe_id}.
+                                          Populated by backfill task on startup + live
+                                          append_turn() indexing.
   notes/SL_Notes/
     memories_YYYY-MM-DD.md                Consolidated memory notes audit trail.
 
@@ -262,25 +369,20 @@ lua/
 setup/
   index.html                              Wizard shell — step bar, content area, footer.
   style.css                               Dark theme, toggle switches, platform/tool cards.
-  wizard.js                               7-step configuration wizard. Fetches current
+  wizard.js                               8-step configuration wizard. Fetches current
                                           config on load, collects state per step, POSTs
                                           to /setup/config on save. Masked secrets pass
-                                          through unchanged. Step 1 includes agent name
-                                          and owner name (OWNER_NAME env var).
-                                          Step 4 (Identity): three textareas for agent.md,
-                                          soul.md, and user.md written to data/identity/.
-                                          Step 6: per-platform awareness textareas (only
-                                          enabled platforms shown).
+                                          through unchanged.
                                           Steps: Agent, Model, Platforms, Identity,
-                                          Tools, Context, Save.
-                                          Step 3 (Platforms): "Update Scripts" button and
-                                          status span. Calls POST /setup/update-scripts with
-                                          the current SERVER_URL, SECRET, and GRID values.
-                                          Auto-triggers silently when the user clicks Next
-                                          on Step 3 and SL is enabled, so scripts are always
-                                          in sync without a manual button press.
-                                          Step 7 (Save): always renders a script section.
-                                          bindStep7() fetches GET /setup/scripts; if both
+                                          Tools, Context, Agents, Save.
+                                          Step 7 (Agents): per-agent model_provider +
+                                          model_name dropdowns for memory_curator,
+                                          librarian, and semantic_recall. Reads from and
+                                          writes to agent_config["supporting_agents"] via
+                                          the main POST /setup/config payload. Leave model
+                                          blank to inherit the main agent's model.
+                                          Step 8 (Save): always renders a script section.
+                                          bindStep8() fetches GET /setup/scripts; if both
                                           scripts are null but a bridge URL is in state,
                                           auto-calls POST /setup/update-scripts to generate
                                           them before rendering. Renders one row per script
@@ -295,26 +397,26 @@ interfaces/
   setup_server.py                         FastAPI APIRouter for the setup wizard.
                                           GET /setup, /setup/status, /setup/config.
                                           POST /setup/config — writes .env and
-                                          agent_config.json, calls reload_agent_config(),
-                                          then runs _migrate_owner_key() which renames any
-                                          non-SL_Notes key in person_map.json to SL_Notes
-                                          and moves the notes folder accordingly.
-                                          POST /setup/update-scripts — reads SERVER_URL,
-                                          SECRET, GRID, and TRIGGER_NAMES from the request
-                                          body and patches lsl/companion_bridge.lsl and
-                                          lua/agent_companion.lua in-place using regex lambda
-                                          substitution (avoids backreference issues with
-                                          special chars in URLs and secrets).
-                                          GET /setup/scripts — returns lsl and lua script
-                                          content plus updated_on_startup flag (set when
-                                          patch_scripts_from_env() detected a structural
-                                          change in the template on startup).
-                                          patch_scripts_from_env() — called from main.py
-                                          on every startup; copies templates over output
-                                          files when force_template=True (always on startup);
-                                          _template_has_changed() compares normalized content
-                                          (credentials replaced with __) to detect structural
-                                          changes without credential noise.
+                                          agent_config.json (including supporting_agents
+                                          block), calls reload_agent_config(), then runs
+                                          _migrate_owner_key() which renames any non-SL_Notes
+                                          key in person_map.json to SL_Notes and moves the
+                                          notes folder accordingly.
+                                          POST /setup/update-scripts — patches LSL + Lua.
+                                          GET /setup/scripts — returns script content +
+                                          updated_on_startup flag.
+                                          GET/POST /setup/library — list or create library
+                                          modules (LibraryWriteBody: filename + content).
+                                          GET/DELETE /setup/library/{module_id} — read or
+                                          delete a specific module by id.
+                                          GET /setup/agents — returns supporting_agents
+                                          block from agent_config.json.
+                                          POST /setup/agents — saves supporting_agents
+                                          block; calls reload_agent_config() immediately
+                                          so changes take effect without full restart.
+                                          patch_scripts_from_env() — called on every
+                                          startup; _template_has_changed() compares
+                                          normalized content to detect structural changes.
 
   debug_server.py                         FastAPI APIRouter for live agent inspection.
                                           Accepts session_index: SessionIndex | None as a
@@ -399,6 +501,63 @@ All turns — including intermediate tool_use and tool_result blocks — are per
 
 ---
 
+## Multi-Agent Architecture
+
+Phase 2 introduced **supporting agents** — specialist background agents that assist the main agent without expanding its scope. Each supporting agent:
+
+- Has its **own `ModelAdapter`** (provider + model independently configurable via the wizard's "Agents" step)
+- Has a **focused system prompt** with no persona, memory, or tools
+- Runs through `SupportingAgent.run()` → `adapter.create_simple()` — a single non-streaming call
+- Uses an `asyncio.Lock` to prevent concurrent runs of the same agent
+
+Supporting agents are **not** full `AgentCore` instances. They cannot call tools, update memory, or perceive sensors.
+
+```
+                          ┌──────────────────────────────────────┐
+                          │             AgentCore                │
+                          │  (main model: claude-sonnet-4-6)     │
+                          └──────┬──────────┬──────────┬─────────┘
+                                 │          │          │
+                    tool call    │          │          │  6h cycle
+                        ┌────────▼──┐  ┌───▼───────┐  │
+                        │ Librarian │  │  Recall   │  │
+                        │  Agent    │  │  Agent    │  │
+                        │ (Haiku)   │  │ (Sonnet)  │  │
+                        └──────┬────┘  └─────┬─────┘  │
+                               │             │        ▼
+                        LibraryStore   VectorStore  MemoryCurator
+                                                      (Haiku)
+                                                         │
+                                                    score_turns()
+                                                    → SessionIndex
+```
+
+### Agent configuration
+
+`data/agent_config.json["supporting_agents"]` holds per-agent model config:
+
+```json
+{
+  "supporting_agents": {
+    "memory_curator":  { "model_provider": "anthropic", "model_name": "claude-haiku-4-5-20251001" },
+    "librarian":       { "model_provider": "anthropic", "model_name": "claude-haiku-4-5-20251001" },
+    "semantic_recall": { "model_provider": "anthropic", "model_name": "claude-sonnet-4-6" }
+  }
+}
+```
+
+`make_supporting_adapter(settings, agent_cfg, agent_name)` in `core/supporting_agent.py` reads this and returns a configured `ModelAdapter`. Falls back to the main model if unconfigured or empty.
+
+### Invocation patterns
+
+| Agent | When invoked | By whom |
+|---|---|---|
+| `MemoryCuratorAgent` | Every 6 h consolidation cycle | `MemoryConsolidator._check_and_consolidate()` |
+| `LibrarianAgent` | `library_lookup` tool call | `AgentCore` tool loop → `ToolRegistry.dispatch()` |
+| `SemanticRecallAgent` | `semantic_recall` tool call | `AgentCore` tool loop → `ToolRegistry.dispatch()` |
+
+---
+
 ## Memory
 
 ### Conversation Files
@@ -453,18 +612,33 @@ Three markdown files in `data/identity/` define the agent's core persona, editab
 
 `_load_identity_files()` in `core/persona.py` reads these and joins them with `\n\n`. Falls back to `_build_core_block(cfg)` if the files don't exist (backwards compatibility).
 
+### Importance Scoring
+
+Every turn in `sessions.db` carries an `importance` score (REAL, sentinel -1.0 = unscored). `MemoryCuratorAgent.score_turns()` scores unscored turns in batches of 20 using `claude-haiku` (configurable). Scores written via `set_importance_batch()` in a single WAL transaction.
+
+| Score | Meaning |
+|---|---|
+| 0.0 | Pure filler — greetings, one-word replies, social noise |
+| 0.3 | Mild context — casual opinions, minor preferences |
+| 0.6 | Notable — strong preference, ongoing project, revealed need |
+| 1.0 | Pivotal — name, life event, explicit request to remember |
+
+The `importance_threshold` setting (default 0.6) controls what graduates to long-term memory. Turns that score below threshold are kept in FTS5/vector indexes but excluded from consolidation transcripts.
+
 ### Memory Consolidation
 
 `MemoryConsolidator` runs as a background task every 6 hours. The timer is restart-resilient — startup reads `.last_consolidation` timestamp from `data/memory/` and sleeps only the remaining interval.
 
 Consolidation triggers when the **total turns across all files** for a person exceeds **30**. When triggered, it:
 
-1. Collects all conversation files across all linked platform IDs for that person
-2. Builds a combined transcript (text turns only — tool_use/tool_result blocks are stripped)
-3. Calls Claude to write first-person bullet-point memory notes
-4. Extracts each bullet and appends it to `MEMORY.md` via `_add_entry()` (oldest trimmed to maintain cap)
-5. Keeps a full audit trail at `data/notes/SL_Notes/memories_YYYY-MM-DD.md`
-6. Trims all source conversation files to their most recent **10 turns**
+1. Calls `MemoryCuratorAgent.score_turns()` on all unscored turns for each linked user_id
+2. Writes scores in one transaction via `SessionIndex.set_importance_batch()`
+3. Builds a transcript filtered to high-importance turns (≥ threshold)
+4. `curator.should_consolidate()` gate — if the curator says nothing new is worth adding, stops here
+5. Calls the main model to write first-person bullet-point memory notes
+6. Extracts each bullet and appends it to `MEMORY.md` via `_add_entry()` (oldest trimmed to maintain cap)
+7. Keeps a full audit trail at `data/notes/SL_Notes/memories_YYYY-MM-DD.md`
+8. Trims all source conversation files to their most recent **10 turns**
 
 ### Short-Term Memory Bridge (STM)
 
@@ -490,6 +664,41 @@ session_search(query="Botanical sim recommendations", limit=5)
 ```
 
 Results are not user-scoped — all of Trixxie's conversation history is searchable, enabling cross-user recall (e.g. "did someone named Flendo ever mention the Botanical sim?"). The `session_query` tool provides structured SQL-style access (speakers mode / turns mode) with date, platform, and name filters.
+
+### Semantic (Vector) Memory
+
+`VectorMemoryStore` wraps a ChromaDB PersistentClient at `data/memory/chroma/`. One collection per `person_id` (named `mem_{safe_id}`). Documents are indexed with the bundled ONNXMiniLM-L6-v2 embedding model — no PyTorch or sentence-transformers required. All ChromaDB calls run in `run_in_executor(None, …)` to avoid blocking the event loop.
+
+**Write path:** `FileMemoryStore._index_and_vectorize()` chains `SessionIndex.index_turn()` (→ row id) → `VectorMemoryStore.add_turn()` using the returned row id as the stable doc ID. Metadata stored per doc: `user_id`, `channel_id`, `platform`, `role`, `timestamp`, `display_name`, `importance`.
+
+**Startup backfill:** `_backfill_vector_store()` in `main.py` indexes all existing `sessions.db` rows not yet in ChromaDB. Runs as a fire-and-forget background task. Idempotent — `has_document()` prevents re-indexing.
+
+**Query path:** `SemanticRecallAgent.recall()` calls `VectorMemoryStore.semantic_search()`, then passes the raw results to a `create_simple()` call that filters noise and annotates which results are actually relevant. Result format:
+```
+[SL | 2026-04-12 | StonedGrits · user | sim:0.87] We were talking about mesh bodies...
+```
+
+### Library System
+
+`LibraryStore` reads `data/library/*.md` files with inline YAML-like front-matter (no external dep). Two modes:
+
+**Always-on modules** (`always_on: true`) are injected into Block 2 on every message, up to `library_always_on_cap` chars (default 4,000). Block 2 is uncached to preserve Block 0's `cache_control: ephemeral`. Platform filtering via the `platforms` list — a module with `platforms: ["discord"]` does not appear in SL messages.
+
+**On-demand modules** are retrieved by the agent via the `library_lookup` tool, which delegates to `LibrarianAgent.find_relevant()`. The librarian does a keyword search to get candidates, then a reasoning pass to filter by relevance to the current query context.
+
+```markdown
+---
+id: sl_gorean_rp
+title: Gorean Roleplay Setting
+description: Reference guide for Gor-based RP in SL
+always_on: false
+platforms: ["sl"]
+tags: ["roleplay", "gor"]
+---
+# full content here...
+```
+
+Manage modules via the wizard at `/setup` → Library tab, or directly via the API (`GET/POST /setup/library`, `DELETE /setup/library/{id}`).
 
 ---
 
@@ -545,11 +754,13 @@ Message received
        ├── LocationStore.get_recent_visits()           (current state)
        ├── AvatarStore.record_encounter() + get_avatar_async() (upsert then read)
        │
-       └── build_system_prompt_blocks() → [static block (cached), dynamic block]
+       ├── LibraryStore.get_always_on(platform)          (modules marked always_on)
+       │
+       └── build_system_prompt_blocks() → [static (cached), library (uncached), dynamic]
                                                         → Claude API call
        │
        └── fire-and-forget: _append_stm_entry()        (1–2 sentence exchange summary → stm.json)
-                            FileMemoryStore fires SessionIndex.index_turn()
+                            FileMemoryStore._index_and_vectorize() (FTS5 + ChromaDB)
 ```
 
 The age labels in the sensor context (`[47s ago]`, `[4m ago]`) are the only signal to the agent about data freshness. Environment and RLV are always present so the agent always knows where it is and what state it's in.
@@ -567,14 +778,22 @@ The platform awareness block tells the agent what it can perceive, what it canno
 | 3 | Additional context | `cfg["additional_context"]` | If non-empty |
 | 4 | MEMORY.md + USER.md | `_load_memory_files(person_id)` — frozen at session start | If files exist; else falls back to facts |
 
-**Block 1 — dynamic, no cache**
+**Block 2 — library context, no cache**
 
 | # | Section | Source | Condition |
 |---|---|---|---|
-| 5 | STM bridge | `_load_stm_bridge(linked_ids)` — rolling exchange summaries | If linked platform IDs exist |
-| 6 | Sensor context | `SensorStore.get_changes()` — objects grouped by (name,owner) | SL only, if non-empty |
-| 7 | Places visited | `LocationStore.get_recent_visits()` | SL only, if non-empty |
-| 8 | Known avatar | `AvatarStore.get_avatar_async()` — display name, SL UUID, channels, first/last seen | SL only, if avatar has prior record |
+| 5 | Always-on library modules | `LibraryStore.get_always_on(platform)` — capped at `library_always_on_cap` chars | If any `always_on: true` modules exist for this platform |
+
+Block 2 is intentionally **uncached** so that Block 0's `cache_control: ephemeral` remains stable. Library content changes infrequently but shouldn't invalidate the main identity cache when it does.
+
+**Block 3 — dynamic, no cache** (called Block 1 in code — index shifts with library presence)
+
+| # | Section | Source | Condition |
+|---|---|---|---|
+| 6 | STM bridge | `_load_stm_bridge(linked_ids)` — rolling exchange summaries | If linked platform IDs exist |
+| 7 | Sensor context | `SensorStore.get_changes()` — objects grouped by (name,owner) | SL only, if non-empty |
+| 8 | Places visited | `LocationStore.get_recent_visits()` | SL only, if non-empty |
+| 9 | Known avatar | `AvatarStore.get_avatar_async()` — display name, SL UUID, channels, first/last seen | SL only, if avatar has prior record |
 
 ---
 
@@ -942,16 +1161,25 @@ The application is fully async (asyncio). The Anthropic client is `AsyncAnthropi
 
 ```
 asyncio event loop
-  ├── consolidation_loop()        (restart-resilient, every 6 hours)
-  ├── debug_server._broadcaster() (SSE log fan-out, always running)
-  ├── discord.py tasks            (fully async)
-  └── uvicorn                     (FastAPI HTTP bridge, async)
+  ├── consolidation_loop()              (restart-resilient, every 6 hours)
+  │     └── MemoryCuratorAgent          (Haiku scoring pass per uid)
+  │         MemoryConsolidator          (main model for note writing)
+  ├── _backfill_vector_store()          (fire-and-forget startup task)
+  │     └── VectorMemoryStore.add_turn()  (executor, 100ms sleep per 100-row batch)
+  ├── debug_server._broadcaster()       (SSE log fan-out, always running)
+  ├── discord.py tasks                  (fully async)
+  └── uvicorn                           (FastAPI HTTP bridge, async)
         ├── POST /sl/sensor → SensorStore.update()
-        ├── POST /sl/message → AgentCore.handle_message() (async)
+        ├── POST /sl/message → AgentCore.handle_message()
+        │     └── _index_and_vectorize()  (fire-and-forget: FTS5 + ChromaDB)
         ├── GET  /debug/logs → SSE StreamingResponse
         ├── DELETE /debug/reset-memory → wipe all agent state
-        └── GET  /setup/* → wizard API
+        └── GET/POST /setup/* → wizard API (agents, library, config)
 ```
+
+**ChromaDB and the event loop:** all `VectorMemoryStore` methods wrap synchronous ChromaDB calls in `asyncio.get_event_loop().run_in_executor(None, lambda: …)`. This dispatches the blocking call to the default thread pool, keeping the asyncio loop fully unblocked.
+
+**SQLite WAL mode:** `sessions.db` runs in WAL (Write-Ahead Logging) mode, set on the first `_ensure_ready()` call. WAL allows concurrent readers alongside one writer — essential because the startup backfill (long-running reader) runs in parallel with the consolidation loop (writer for importance scores).
 
 If `ANTHROPIC_API_KEY` (or the equivalent provider key) is missing when `main()` starts, `load_settings()` raises `EnvironmentError`. `main()` catches this and calls `_run_setup_wizard_only()`, which starts a minimal single-router FastAPI app (wizard only, no bridge, no debug page) so the user can complete setup at `/setup` without being blocked by a startup crash.
 
@@ -986,7 +1214,9 @@ All three services share the same `AgentCore`, `FileMemoryStore`, `LocationStore
 | Radegast C# plugin | Native IM loop for Radegast viewer — same `/sl/message` endpoint; requires C# build pipeline |
 | Named tunnel | Permanent subdomain so the LSL `SERVER_URL` never needs updating |
 | More tools | Register a new handler in `ToolRegistry` and add a schema in `tools.py` |
-| Web dashboard | Memory and location files are plain JSON — readable by any future UI layer |
+| Library UI in wizard | Currently CRUD is via `/setup/library` API; a dedicated wizard tab would help non-technical users |
+| Vector re-ranking | ChromaDB returns raw similarity scores; a reranker pass could improve precision for long-tail queries |
+| Per-user token accounting | Framework should track API usage per canonical person_id for multi-tenant SaaS billing |
 | Proactive agent loop | See below |
 
 ---

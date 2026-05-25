@@ -19,6 +19,10 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 | **Cross-platform context** | Carries context between Discord and Second Life when the same person is linked |
 | **Memory consolidation** | Background job writes concise notes from long conversation history every 6 hours |
 | **Session search** | Full-text search over all past conversations — the agent can recall specific exchanges |
+| **Semantic recall** | Meaning-based memory search via ChromaDB — finds relevant memories even when the exact words differ |
+| **Importance scoring** | Background agent scores every turn 0–1; only high-value content graduates to long-term memory |
+| **Library modules** | Drop-in reference documents (lore guides, setting rules, style notes) injected into context on demand or always-on |
+| **Supporting agents** | Specialist background agents (Memory Curator, Librarian, Semantic Recall) each with configurable provider and model |
 
 ---
 
@@ -49,7 +53,13 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
    pip install -r requirements.txt
    ```
 
-2. **Start the agent**
+2. **Verify the installation** *(optional but recommended)*
+   ```bash
+   python check_install.py
+   ```
+   Should print `Installation OK`. If it fails, the output tells you exactly what's missing.
+
+3. **Start the agent**
    ```bash
    ./run.sh
    ```
@@ -66,10 +76,11 @@ cd trixxie-companion-agent
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
-3. **Install & Run**
+3. **Install, verify, and run**
 ```powershell
 pip install -r requirements.txt
-python main.py
+python check_install.py
+.\run.bat
 ```
 
 **Companion Setup**
@@ -192,11 +203,25 @@ Two optional fields:
 - **Additional context** — anything else the agent should always know (e.g. your timezone, a shared fictional setting, house rules)
 - **Platform awareness overrides** — edit the per-platform behavior instructions for Discord, Second Life, and OpenSimulator if the defaults don't fit your setup
 
-### Step 7 — Save
+### Step 7 — Agents
+
+Configure which AI model each background specialist agent uses. These agents run separately from the main model and can use cheaper or faster models to keep background costs low.
+
+| Agent | Default model | Role |
+|---|---|---|
+| **Memory Curator** | Claude Haiku | Scores conversation turns for importance (0–1); gates consolidation |
+| **Librarian** | Claude Haiku | Reasons about which library modules are relevant to a query |
+| **Semantic Recall** | Claude Sonnet | Filters and annotates ChromaDB semantic search results |
+
+For each agent, select a provider and enter the model name. Leave blank to use the same model as the main agent.
+
+> **Cost tip:** Haiku is the right default for Curator and Librarian — they run batched scoring calls in the background, not real-time responses. Sonnet or better is recommended for Semantic Recall since it reasons about relevance.
+
+### Step 8 — Save
 
 Review and save. The wizard writes:
 - `.env` — API keys and credentials
-- `data/agent_config.json` — persona, tools, platform awareness
+- `data/agent_config.json` — persona, tools, platform awareness, supporting agent models
 
 Persona changes take effect immediately on the next message. Model and credential changes require restarting `run.sh`.
 
@@ -371,25 +396,57 @@ Tested grids: **OSGrid**, **Metropolis**, standalone deployments.
 
 <br>
 
-Your agent maintains several layers of memory across sessions:
+Your agent maintains several layers of memory that work together automatically:
 
-| Layer | Description |
-|---|---|
-| **Conversation history** | Recent turns per user and channel — automatically trimmed |
-| **MEMORY.md** | ~2,000 chars — context, facts, and notes the agent curates itself |
-| **USER.md** | ~1,200 chars — your preferences, style, and background |
-| **Notes** | Free-form notes the agent saves and retrieves on request |
-| **Session search** | Full-text search over all past turns via SQLite FTS5 |
+| Layer | Storage | Description |
+|---|---|---|
+| **Conversation history** | JSON files | Recent turns per user and channel — automatically trimmed to last 20 |
+| **Curated notes** | `MEMORY.md` per person | ~2,000 chars — the agent writes its own bullet-point notes about you |
+| **Identity files** | `agent.md`, `soul.md`, `user.md` | Your preferences, the agent's personality, loaded every session |
+| **Notes tool** | JSON | Free-form notes saved and retrieved on request |
+| **Session archive** | SQLite FTS5 | Every turn ever — full-text searchable by keyword |
+| **Semantic memory** | ChromaDB vectors | Meaning-based search — finds relevant memories even when words differ |
+| **Library modules** | Markdown files | Lore guides, setting rules, reference docs — injected on demand or always-on |
+
+### How consolidation works
+
+After 30+ total turns with a person, a background pipeline runs every 6 hours:
+
+1. **Score** — the Memory Curator agent rates every unscored turn 0.0–1.0 (filler → pivotal)
+2. **Gate** — the curator decides if there's anything new worth writing down
+3. **Filter** — only turns scored ≥ 0.6 are included in the consolidation transcript
+4. **Write** — the main model writes journal-style notes and appends them to `MEMORY.md`
+5. **Trim** — conversation files are cut back to 10 turns to keep context lean
+
+### Using library modules
+
+Drop Markdown files into `data/library/` with a front-matter header:
+
+```markdown
+---
+id: gorean_rp
+title: Gorean Roleplay Setting
+description: Reference for Gor-based RP
+always_on: false
+platforms: ["sl"]
+tags: ["roleplay", "gor"]
+---
+
+# Lore content here...
+```
+
+- `always_on: true` — injected into every system prompt automatically (watch total size)
+- `always_on: false` — the Librarian agent retrieves it when the conversation calls for it
+- `platforms` — restrict a module to `sl`, `discord`, or leave empty for both
 
 Example interactions:
 ```
 "Remember that I love the Botanical sim."
 "What did we talk about last week in SL?"
+"Find anything in memory about my build project."
 "Make a note: shopping list — new boots, glam hair."
 "What do you know about me so far?"
 ```
-
-Memory consolidation runs every 6 hours in the background — long conversation histories are summarized into notes and trimmed.
 
 </details>
 
@@ -431,31 +488,41 @@ companion-agent/
 │   ├── model_adapter.py         Anthropic and OpenAI-compatible backends, prompt caching
 │   ├── persona.py               System prompt assembly, identity file loading
 │   ├── tools.py                 Tool registry and dispatch
-│   └── tool_handlers/           One file per tool (web_search, notes, memory, sl_action, …)
+│   ├── supporting_agent.py      Base class for specialist background agents
+│   ├── memory_curator.py        Importance scoring + consolidation gate agent
+│   ├── librarian_agent.py       Library module retrieval with reasoning pass
+│   ├── recall_agent.py          Semantic recall reasoning agent
+│   └── tool_handlers/           One file per tool (web_search, notes, memory, sl_action, library, semantic_recall, …)
 ├── memory/
 │   ├── file_store.py            JSON conversation files with asyncio locking
 │   ├── consolidator.py          Background summarization job (every 6h)
-│   ├── session_index.py         SQLite FTS5 full-text index
+│   ├── session_index.py         SQLite FTS5 full-text index + importance scores
+│   ├── vector_store.py          ChromaDB semantic vector store
+│   ├── library_store.py         Library module filesystem layer
 │   ├── person_map.py            Links Discord and SL identities to one canonical person
 │   └── location_store.py        SL region/parcel visit history
 ├── interfaces/
 │   ├── discord_bot/             Discord interface (discord.py)
 │   ├── sl_bridge/               FastAPI HTTP bridge — /sl/message and /sl/sensor
-│   ├── setup_server.py          Wizard API router
+│   ├── setup_server.py          Wizard API router (includes library CRUD)
 │   └── debug_server.py          Debug page + SSE log stream
 ├── setup/
 │   ├── index.html               Wizard shell
 │   ├── style.css                Dark theme
-│   └── wizard.js                7-step configuration wizard
+│   └── wizard.js                8-step configuration wizard
 ├── lsl/
 │   └── companion_bridge.lsl     HUD script worn by the agent's avatar (Mono compiler)
 ├── lua/
 │   ├── agent_companion.lua      Cool VL Viewer automation script
 │   └── README.md                Lua interface setup guide
 └── data/                        Runtime data — created on first run, gitignored
-    ├── agent_config.json        Persona, tools, platform awareness (written by wizard)
+    ├── agent_config.json        Persona, tools, platform awareness, supporting agent models
     ├── identity/                agent.md, soul.md, user.md (written by wizard)
-    └── memory/                  Conversations, notes, session index, memory files
+    ├── library/                 Library module Markdown files (*.md with front-matter)
+    └── memory/
+        ├── sessions.db          SQLite FTS5 index + importance scores
+        ├── chroma/              ChromaDB vector store (semantic memory)
+        └── {user_id}/           JSON conversations, MEMORY.md, facts per person
 ```
 
 </details>
@@ -477,7 +544,7 @@ companion-agent/
 - Verify `run.sh` is running and the bridge started on port 8080
 - The tunnel URL changes on every cloudflared restart — update the script and recompile when it does
 - Check that `SECRET` in the LSL script matches `SL_BRIDGE_SECRET` in `.env`
-- If you lost the HUD script, go to **Settings → Step 7** and use the Copy or Save button to recover the fully-patched LSL script
+- If you lost the HUD script, go to **Settings → Step 8** and use the Copy or Save button to recover the fully-patched LSL script
 
 **"My Outfit" scan says "RLV not ready":**
 - RLV must be enabled in your SL viewer (look for a RestrainedLove or RestrainedLife toggle in viewer settings)
@@ -489,6 +556,9 @@ companion-agent/
 **LSL memory low — resetting (SL local chat):**
 - **Known v1.x Limitation**: Crowded sims (lots of objects/avatars) bloat memory when the HUD generates JSON payloads. Currently, the HUD blindly resends sensor data at intervals even if nothing has changed, which consumes memory and processing power.
 - **Workaround:** Click the HUD and disable `Objects` or `Avatars` sensors in busy regions. This inefficient data broadcasting will be fixed and optimized in version 2.0.
+
+**Slow first startup (downloading embedding model):**
+- On first run, ChromaDB downloads the ONNX embedding model (~80 MB). This is a one-time download and happens silently in the background. If startup takes longer than expected the first time, this is why. Subsequent startups are instant.
 
 **Agent makes up conversation history:**
 - This shouldn't happen — the system prompt instructs the agent to use `session_search` before claiming it doesn't recall something
@@ -521,6 +591,10 @@ All configuration lives in `.env` (created by the wizard). Reference:
 | `SEARCH_API_KEY` | If web search enabled | Brave or Serper API key |
 | `MEMORY_MAX_HISTORY` | No | Turns kept per conversation file (default: 20) |
 | `OWNER_NAME` | No | Your name — used in memory notes and context |
+| `IMPORTANCE_THRESHOLD` | No | Minimum importance score for long-term memory (default: 0.6) |
+| `IMPORTANCE_SCORE_BATCH_SIZE` | No | Turns scored per curator API call (default: 20) |
+| `LIBRARY_DIR` | No | Path to library modules directory (default: `./data/library`) |
+| `LIBRARY_ALWAYS_ON_CAP` | No | Max chars of always-on library content per message (default: 4000) |
 
 </details>
 

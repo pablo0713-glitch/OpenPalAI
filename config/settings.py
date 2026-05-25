@@ -61,6 +61,14 @@ class Settings:
     sl_bridge_url: str
     sl_trigger_names: list[str]
 
+    # Library system
+    library_dir: str
+    library_always_on_cap: int
+
+    # Memory curator (importance scoring)
+    importance_threshold: float
+    importance_score_batch_size: int
+
 
 _CLOUD_OPENAI_COMPAT = {"openai", "openrouter", "gemini", "grok"}
 
@@ -121,6 +129,10 @@ def load_settings() -> Settings:
         sl_trigger_names=[
             t.strip() for t in os.getenv("SL_TRIGGER_NAMES", "").split(",") if t.strip()
         ],
+        library_dir=os.getenv("LIBRARY_DIR", "./data/library"),
+        library_always_on_cap=int(os.getenv("LIBRARY_ALWAYS_ON_CAP", "4000")),
+        importance_threshold=float(os.getenv("IMPORTANCE_THRESHOLD", "0.6")),
+        importance_score_batch_size=int(os.getenv("IMPORTANCE_SCORE_BATCH_SIZE", "20")),
     )
 
 

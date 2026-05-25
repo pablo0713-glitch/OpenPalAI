@@ -235,8 +235,26 @@ class AgentCore:
         )
 
         for turn in assistant_turns:
-            if not turn.get("content"):
+            content = turn.get("content")
+            if not content:
                 continue
+            # Skip intermediate tool_use-only assistant turns — the final text
+            # response already incorporates what the tools returned.
+            if turn["role"] == "assistant" and isinstance(content, list):
+                has_text = any(
+                    (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "text"
+                    for b in content
+                )
+                if not has_text:
+                    continue
+            # Skip tool_result user turns for the same reason.
+            if turn["role"] == "user" and isinstance(content, list):
+                all_results = all(
+                    (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_result"
+                    for b in content
+                )
+                if all_results:
+                    continue
             await self._memory.append_turn(
                 context.user_id,
                 context.channel_id,

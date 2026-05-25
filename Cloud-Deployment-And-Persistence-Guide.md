@@ -362,7 +362,14 @@ sudo systemctl disable trixxie
 # 2. Your data/ and .env are already in place — nothing moves.
 #    The container will mount them from the same location.
 
-# 3. Build and start the container
+# 3. Install compose support if not already present
+#    Fedora / RHEL / Rocky:
+sudo dnf install podman-compose -y
+#    Ubuntu / Debian:
+#    sudo apt install docker-compose-plugin -y
+#    (docker-compose-plugin provides the 'docker compose' subcommand)
+
+# Then build and start the container
 cd ~/trixxie-companion-agent
 git pull                        # get Containerfile and compose.yml
 podman compose build            # or: docker compose build
@@ -418,6 +425,8 @@ Memory, conversation history, ChromaDB vectors, and all configuration are restor
 | Issue | Signature | Fix |
 |---|---|---|
 | **Container won't start** | `podman compose up` exits immediately | Run `podman compose logs` to see the error. Most common: `.env` missing or malformed. |
+| **Service fails with `status=217/USER`** | `systemctl status trixxie` shows `(code=exited, status=217/USER)` | The `User=your-user` placeholder in the service file was not replaced. Edit `/etc/systemd/system/trixxie.service`, replace every instance of `your-user` with your actual Linux username (`whoami`), then run `sudo systemctl daemon-reload && sudo systemctl restart trixxie`. |
+| **Service file parse warnings** | `journalctl` shows `Assignment outside of section` or `Missing '='` on line 1 or 2 | The service file has content (a comment, blank line, or stray text) before the `[Unit]` header. The file must begin with `[Unit]` on the very first line — nothing before it. Edit the file and remove any leading lines. |
 | **SELinux blocks volume mount** | Container starts but `data/` is empty or read-only; `journalctl` shows AVC denials | Volume labels in `compose.yml` already include `:Z`. If still failing: `sudo chcon -Rt svirt_sandbox_file_t data/` |
 | **Port 8080 not reachable** | `curl http://localhost:8080` times out | Check `podman compose ps` — container must be running. Check `compose.yml` — port must be `127.0.0.1:8080:8080` or `0.0.0.0:8080:8080`. |
 | **ChromaDB fails to start** | Log: `OSError: libgomp.so.1: cannot open shared object file` | Containerfile already installs `libgomp1`. If you modified the base image, re-add it. |

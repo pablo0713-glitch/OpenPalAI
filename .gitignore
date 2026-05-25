@@ -3,6 +3,8 @@
 venv/
 data/memory/
 data/notes/
+data/library/
+data/.cache/
 data/agent_config.json
 data/identity/
 data/person_map.json

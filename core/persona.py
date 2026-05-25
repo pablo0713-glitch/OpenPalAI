@@ -183,6 +183,7 @@ class MessageContext:
     sl_sensor_context: dict = field(default_factory=dict)
     sl_recent_locations: list[dict] = field(default_factory=list)
     sl_known_avatar: dict | None = None
+    sl_relationship: str = ""
 
 
 # ------------------------------------------------------------------ prompt assembly
@@ -351,6 +352,8 @@ def build_system_prompt_blocks(
             dynamic_parts.append(_format_recent_locations(context.sl_recent_locations))
         if context.sl_known_avatar:
             dynamic_parts.append(_format_known_avatar(context.sl_known_avatar))
+        if context.sl_relationship:
+            dynamic_parts.append(context.sl_relationship)
 
     blocks: list[dict] = [static_block]
 

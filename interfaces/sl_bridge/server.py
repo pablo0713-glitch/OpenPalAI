@@ -14,6 +14,7 @@ from interfaces.sl_bridge.formatters import cap_reply
 from interfaces.sl_bridge.sensor_store import SensorStore
 from memory.avatar_store import AvatarStore
 from memory.location_store import LocationStore
+from memory.session_index import SessionIndex
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,48 @@ class SLOutboundResponse(BaseModel):
 
 # ------------------------------------------------------------------ app factory
 
-def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStore, location_store: LocationStore | None = None, avatar_store: AvatarStore | None = None) -> FastAPI:
+_TIERS = [
+    (0,  "no prior history"),
+    (1,  "new acquaintance"),
+    (5,  "occasional visitor"),
+    (15, "regular"),
+]
+
+
+def _relationship_tier(distinct_days: int) -> str:
+    tier = "frequent regular"
+    for threshold, label in _TIERS:
+        if distinct_days <= threshold:
+            tier = label
+            break
+    return tier
+
+
+def _format_relationship(stats: dict, display_name: str) -> str:
+    days = stats.get("distinct_days", 0)
+    if not days:
+        return ""
+    first = (stats.get("first_seen") or "")[:10]
+    last = (stats.get("last_seen") or "")[:10]
+    since = stats.get("days_since_last", 0)
+
+    if since == 0:
+        recency = "today"
+    elif since == 1:
+        recency = "yesterday"
+    else:
+        recency = f"{since} days ago"
+
+    tier = _relationship_tier(days)
+    parts = [f"## Interaction History — {display_name}"]
+    parts.append(
+        f"Relationship: {tier} | {days} visit{'s' if days != 1 else ''} "
+        f"| First: {first} | Last: {recency}"
+    )
+    return "\n".join(parts)
+
+
+def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStore, location_store: LocationStore | None = None, avatar_store: AvatarStore | None = None, session_index: SessionIndex | None = None) -> FastAPI:
     app = FastAPI(title="Trixxie SL Bridge", docs_url=None, redoc_url=None)
 
     # ---- Conversation endpoint ----
@@ -83,6 +125,11 @@ def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStor
             if known_avatar is not None:
                 known_avatar = {**known_avatar, "sl_uuid": payload.user_id}
 
+        relationship = ""
+        if session_index:
+            stats = await session_index.get_interaction_stats(sl_user_id)
+            relationship = _format_relationship(stats, payload.display_name)
+
         context = MessageContext(
             platform="sl",
             user_id=sl_user_id,
@@ -93,6 +140,7 @@ def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStor
             sl_sensor_context=sensor_ctx,
             sl_recent_locations=recent_locations,
             sl_known_avatar=known_avatar,
+            sl_relationship=relationship,
         )
 
         try:

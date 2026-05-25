@@ -249,7 +249,7 @@ async def main() -> None:
         logger.warning("DISCORD_TOKEN not set — Discord bot will not start.")
 
     # ---- Second Life HTTP bridge (always runs) ----
-    sl_app = create_sl_app(agent, settings, sensor_store, location_store, avatar_store)
+    sl_app = create_sl_app(agent, settings, sensor_store, location_store, avatar_store, session_index)
 
     # ---- Debug page ----
     install_log_handler(asyncio.get_running_loop())

@@ -203,6 +203,40 @@ class SessionIndex:
             logger.warning("SessionIndex.get_unscored_turns failed: %s", exc)
             return []
 
+    async def get_interaction_stats(self, user_id: str) -> dict:
+        """Return visit frequency stats for a user.
+
+        Uses distinct calendar days as the visit unit — one long argument and one
+        brief greeting both count as a single day, preventing turn-count inflation
+        from distorting relationship tier.
+
+        Returns keys: distinct_days, first_seen, last_seen, days_since_last.
+        Returns {} when the user has no history.
+        """
+        await self._ensure_ready()
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """
+                    SELECT
+                        COUNT(DISTINCT date(timestamp))                              AS distinct_days,
+                        MIN(timestamp)                                               AS first_seen,
+                        MAX(timestamp)                                               AS last_seen,
+                        CAST(julianday('now') - julianday(MAX(timestamp)) AS INTEGER) AS days_since_last
+                    FROM sessions
+                    WHERE user_id = ? AND role = 'user'
+                    """,
+                    (user_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+            if row and row["distinct_days"]:
+                return dict(row)
+            return {}
+        except Exception as exc:
+            logger.warning("SessionIndex.get_interaction_stats failed: %s", exc)
+            return {}
+
     async def get_high_importance_turns(
         self, user_id: str, threshold: float = 0.6
     ) -> list[dict]:

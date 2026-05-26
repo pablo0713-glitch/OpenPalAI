@@ -17,16 +17,19 @@ https://github.com/pablo0713-glitch/trixxie-companion-agent
   VIEWER REQUIREMENT
 ----------------------------------------
 
-This framework is designed for COOL VL VIEWER.
+YOU (the user) can log in with any viewer — Firestorm, Alchemy, the
+official SL viewer, whatever you prefer.
+
+THE AGENT'S AVATAR must run Cool VL Viewer.
 
 The primary in-world interface is a native Lua automation script that
-runs inside Cool VL Viewer. It handles avatars, environment, agent
-state, chat, and direct IMs at the viewer level — with no LSL memory
-limits and no /42 channel needed.
+runs inside Cool VL Viewer on the agent's side. It handles avatars,
+environment, agent state, chat, and direct IMs at the viewer level —
+with no LSL memory limits and no /42 channel needed.
 
-An LSL HUD script is also included as a fallback for other SL viewers,
-and is still required for environment object scanning. However, Cool VL
-Viewer will eventually be a hard requirement.
+An LSL HUD script is also included for environment object scanning and
+as a fallback if Cool VL Viewer is not available for the agent's avatar.
+Cool VL Viewer for the agent's avatar will eventually be required.
 
 Cool VL Viewer: https://sldev.free.fr/
 

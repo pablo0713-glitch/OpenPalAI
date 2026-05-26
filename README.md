@@ -35,7 +35,7 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 | ✨ **Both platforms** | Fast Setup → Wizard → Second Life Setup |
 | 🔲 **OpenSimulator** | Same as Second Life + one script change — see the OpenSimulator section |
 
-> **Second Life viewer:** This framework is designed for **Cool VL Viewer** using its native Lua scripting API. The Lua script is the primary in-world interface — it handles avatars, environment, chat, IMs, and agent state directly at the viewer level with no LSL memory limits. The LSL HUD remains available as a fallback for other viewers (object scanning only in full Lua setups), but **Cool VL Viewer will eventually be required**.
+> **Second Life viewers:** Your own viewer can be anything — Firestorm, Alchemy, the official viewer, whatever you prefer. **The agent's avatar must run Cool VL Viewer.** The Lua automation script runs inside Cool VL Viewer's native Lua API and is the primary in-world interface — handling avatars, environment, chat, IMs, and agent state at the viewer level with no LSL memory limits. The LSL HUD remains available as a fallback for the agent's viewer if needed (and is still used for object scanning), but Cool VL Viewer for the agent's avatar will eventually be required.
 
 > **OpenSim note:** The HUD works on OpenSimulator 0.9.3.0+. Set `string GRID = "opensim";` at the top of `lsl/companion_bridge.lsl` before compiling. See the OpenSimulator section for details.
 
@@ -120,7 +120,7 @@ Your `.env`, `data/`, and configured scripts are not touched by a pull. The LSL 
 - **Python 3.10+**
 - Your LLM service provider **API key** — or a local [Ollama](https://ollama.com) install
 - **Discord** (optional) — a bot application from the [Discord Developer Portal](https://discord.com/developers)
-- **Second Life or OpenSimulator** (optional) — an avatar account. **Cool VL Viewer is the recommended viewer** — it enables the native Lua interface which is the primary in-world bridge. Other viewers can use the LSL HUD as a fallback.
+- **Second Life or OpenSimulator** (optional) — two avatar accounts if running an agent alongside your own: yours (any viewer) and the agent's (**Cool VL Viewer required** for the Lua interface). The LSL HUD works as a fallback on other viewers for the agent's avatar.
 - **A public HTTPS tunnel** (required for Second Life) — cloudflared is the default; ngrok, bore, or a VPS with nginx all work too
 
 </details>

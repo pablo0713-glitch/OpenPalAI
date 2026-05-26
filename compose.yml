@@ -13,7 +13,7 @@ services:
       # ChromaDB ONNX model cache — persists across rebuilds so the ~80 MB
       # embedding model is only downloaded once.
       - ./data/.cache:/root/.cache:Z
-      # Environment variables — read-only, never baked into the image.
-      - ./.env:/app/.env:ro,Z
+      # Environment variables — writable so the setup wizard can save settings.
+      - ./.env:/app/.env:Z
     environment:
       - PYTHONUNBUFFERED=1

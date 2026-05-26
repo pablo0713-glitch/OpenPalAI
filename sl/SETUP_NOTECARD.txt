@@ -3,100 +3,79 @@
   AI Companion for Second Life & Discord
 ========================================
 
-This HUD turns a Second Life avatar into a live AI companion powered
-by Claude (Anthropic), GPT-4, Gemini, Grok, or a local model via
-Ollama. The agent remembers conversations, searches the web, sees
-nearby avatars and environment data, and responds to IMs or local
-chat triggers — all from a self-hosted server you run yourself.
+This framework turns a Second Life avatar into a live AI companion
+powered by Claude (Anthropic), GPT-4, Gemini, Grok, or a local model
+via Ollama. The agent remembers conversations, searches the web, sees
+nearby avatars, reads ambient chat, and responds to IMs or local chat
+triggers — all from a self-hosted server you run yourself.
 
-Full documentation and source code:
+Full documentation, setup guide, and source code:
 https://github.com/pablo0713-glitch/trixxie-companion-agent
+
+
+----------------------------------------
+  VIEWER REQUIREMENT
+----------------------------------------
+
+This framework is designed for COOL VL VIEWER.
+
+The primary in-world interface is a native Lua automation script that
+runs inside Cool VL Viewer. It handles avatars, environment, agent
+state, chat, and direct IMs at the viewer level — with no LSL memory
+limits and no /42 channel needed.
+
+An LSL HUD script is also included as a fallback for other SL viewers,
+and is still required for environment object scanning. However, Cool VL
+Viewer will eventually be a hard requirement.
+
+Cool VL Viewer: https://sldev.free.fr/
 
 
 ----------------------------------------
   WHAT'S IN THIS PACKAGE
 ----------------------------------------
 
-  companion_bridge.lsl   — The HUD script (paste into an object
-                           and attach to your avatar)
-
   SETUP_NOTECARD         — This notecard
 
 
 ----------------------------------------
-  QUICK START
+  SETUP OVERVIEW
 ----------------------------------------
 
-STEP 1 — Set up the server
+Full step-by-step instructions are at the GitHub link above.
+The short version:
 
-  Follow the setup guide at the GitHub link above. You will need:
+1. INSTALL THE SERVER
+   Clone the repo, install Python dependencies, and run the setup
+   wizard at http://localhost:8080/setup to configure your AI model,
+   persona, and credentials. For 24/7 use, deploy to a VPS using the
+   containerized setup described in:
+   Cloud-Deployment-And-Persistence-Guide.md (in the repo root).
 
-  - Python 3.10+ on a computer that stays online
-  - An API key for your chosen AI provider
-    (Anthropic, OpenAI, etc.)
-  - cloudflared (or similar) to create a public HTTPS tunnel
-    to your local server
+2. INSTALL THE LUA SCRIPT (Cool VL Viewer)
+   The server generates lua/agent_companion.lua with your credentials
+   filled in. Copy it to your Cool VL Viewer user_settings folder as
+   automation.lua. The viewer loads it automatically on startup.
 
+   See lua/README.md in the repo for exact OS paths and a warning
+   about same-PC setups where both your viewer and the agent's viewer
+   run on the same machine.
 
-STEP 2 — Get your tunnel URL
+3. INSTALL THE LSL HUD (optional / object scanning)
+   If you are not using Cool VL Viewer, or want object scanning in
+   addition to the Lua script, paste lsl/companion_bridge.lsl into
+   a prim and wear it as a HUD. The server generates this file with
+   your credentials pre-filled.
 
-  Start your server (./run.sh) and then start cloudflared:
+4. TALK TO YOUR AGENT
+   Private IM (Lua — no channel prefix needed, just IM the avatar):
+     Hey, what do you think of this sim?
 
-    cloudflared tunnel --url http://localhost:8080
+   Private channel via HUD (LSL fallback):
+     /42 Hey, what's going on here?
 
-  Copy the https:// URL it prints. This is your SERVER_URL.
-  Note: free cloudflared tunnels change URL on every restart.
-  For a permanent URL, set up a named Cloudflare tunnel.
-
-
-STEP 3 — Configure the HUD script
-
-  Open companion_bridge.lsl and set these values at the top:
-
-    string SERVER_URL = "https://your-tunnel-url.trycloudflare.com";
-    string SECRET     = "your-bridge-secret";
-    string GRID       = "sl";      // "sl" for Second Life, "opensim" for OpenSimulator
-    list   TRIGGER_NAMES = ["Primary", "Alias1", "Alias2"];
-
-  SECRET must match SL_BRIDGE_SECRET in your server's .env file.
-  Leave SECRET as "" if you did not set a bridge secret.
-
-  TRIGGER_NAMES is the list of names that trigger a response in
-  local chat (channel 0). Replace with your agent's name and aliases.
-
-  If running on OpenSimulator, also set:
-    string GRID = "opensim";
-
-
-STEP 4 — Create and wear the HUD
-
-  1. Rez a small prim in-world
-  2. Open its Contents tab and create a new script
-  3. Delete the default script and paste in companion_bridge.lsl
-  4. Save — it compiles automatically (use Mono compiler)
-  5. Right-click the prim > More > Attach HUD
-
-  The HUD will say "Sensory HUD active" in local chat when ready.
-  Touch it to open the sensor control panel.
-
-
-STEP 5 — Talk to your agent
-
-  Private channel (no one else sees this):
-    /42 Hey, what do you think of this sim?
-
-  Local chat trigger (public, reply is public):
-    Hey [AgentName], what's the vibe in here?
-
-
-----------------------------------------
-  OPTIONAL — Cool VL Viewer Lua Script
-----------------------------------------
-
-If your agent's avatar runs Cool VL Viewer, a native Lua script
-is also available in the GitHub repo. It enables private IM
-conversations without the /42 channel and shows a typing indicator
-during inference. See lua/README.md for details.
+   Local chat trigger (public — reply is public):
+     Hey [AgentName], what's the vibe in here?
 
 
 ----------------------------------------
@@ -107,8 +86,6 @@ during inference. See lua/README.md for details.
                 (IMs can get capped — a notecard is safer)
 
   Discord:      tanmojo
-
-  Email:        pablo071372@outlook.com
 
   GitHub:       https://github.com/pablo0713-glitch/trixxie-companion-agent
                 Open an issue for bugs or feature requests.

@@ -271,48 +271,81 @@ class SessionIndex:
         mode='speakers' — one row per unique person: display_name, platform,
                           first_seen, last_seen, turn_count.
         mode='turns'    — individual message rows with content snippet.
+                          When include_names is set, returns BOTH sides of the
+                          conversation (user turns AND assistant replies) so the
+                          full exchange is visible, not just one speaker.
         """
         await self._ensure_ready()
 
-        clauses: list[str] = ["role = 'user'", "display_name != ''"]
-        params: list = []
-
+        # Reusable date/platform filter fragments
+        time_parts: list[str] = []
+        time_params: list = []
         if date_from:
-            clauses.append("timestamp >= ?")
-            params.append(date_from)
+            time_parts.append("timestamp >= ?")
+            time_params.append(date_from)
         if date_to:
-            # treat date_to as inclusive end-of-day
-            clauses.append("timestamp < ?")
-            params.append(date_to + "T23:59:59" if "T" not in date_to else date_to)
+            time_parts.append("timestamp < ?")
+            time_params.append(date_to + "T23:59:59" if "T" not in date_to else date_to)
         if platform:
-            clauses.append("platform = ?")
-            params.append(platform)
-        if include_names:
-            placeholders = ",".join("?" * len(include_names))
-            clauses.append(f"display_name IN ({placeholders})")
-            params.extend(include_names)
-        if exclude_names:
-            placeholders = ",".join("?" * len(exclude_names))
-            clauses.append(f"display_name NOT IN ({placeholders})")
-            params.extend(exclude_names)
-
-        where = " AND ".join(clauses)
+            time_parts.append("platform = ?")
+            time_params.append(platform)
 
         if mode == "speakers":
+            clauses = ["role = 'user'", "display_name != ''"] + time_parts
+            params: list = list(time_params)
+            if include_names:
+                placeholders = ",".join("?" * len(include_names))
+                clauses.append(f"display_name IN ({placeholders})")
+                params.extend(include_names)
+            if exclude_names:
+                placeholders = ",".join("?" * len(exclude_names))
+                clauses.append(f"display_name NOT IN ({placeholders})")
+                params.extend(exclude_names)
+            where = " AND ".join(clauses)
             sql = (
                 f"SELECT display_name, user_id, platform, "
                 f"MIN(timestamp) AS first_seen, MAX(timestamp) AS last_seen, COUNT(*) AS turns "
                 f"FROM sessions WHERE {where} "
                 f"GROUP BY user_id ORDER BY last_seen DESC LIMIT ?"
             )
-        else:  # turns
+            params.append(limit)
+
+        elif include_names:
+            # turns mode with a name filter — return the full conversation (both
+            # sides). Subquery resolves named display_names → user_ids, then the
+            # outer query fetches ALL turns (user + assistant) for those user_ids
+            # so the replies are visible alongside the user messages.
+            name_phs = ",".join("?" * len(include_names))
+            clauses = [
+                f"user_id IN (SELECT DISTINCT user_id FROM sessions "
+                f"WHERE role = 'user' AND display_name IN ({name_phs}))"
+            ] + time_parts
+            params = list(include_names) + list(time_params)
+            where = " AND ".join(clauses)
             sql = (
-                f"SELECT display_name, user_id, platform, timestamp, "
+                f"SELECT display_name, user_id, platform, timestamp, role, "
+                f"substr(content, 1, 300) AS snippet "
+                f"FROM sessions WHERE {where} "
+                f"ORDER BY timestamp ASC LIMIT ?"
+            )
+            params.append(limit)
+
+        else:
+            # turns mode with no name filter — user turns only to avoid noise
+            clauses = ["role = 'user'", "display_name != ''"] + time_parts
+            params = list(time_params)
+            if exclude_names:
+                placeholders = ",".join("?" * len(exclude_names))
+                clauses.append(f"display_name NOT IN ({placeholders})")
+                params.extend(exclude_names)
+            where = " AND ".join(clauses)
+            sql = (
+                f"SELECT display_name, user_id, platform, timestamp, role, "
                 f"substr(content, 1, 300) AS snippet "
                 f"FROM sessions WHERE {where} "
                 f"ORDER BY timestamp DESC LIMIT ?"
             )
-        params.append(limit)
+            params.append(limit)
 
         try:
             async with aiosqlite.connect(self._db_path) as db:

@@ -52,7 +52,9 @@ async def handle_session_query(
         for r in rows:
             ts = r.get("timestamp", "")[:16].replace("T", " ")
             plat = r.get("platform", "?").upper()
-            name = r.get("display_name", "?")
+            role = r.get("role", "user")
+            raw_name = r.get("display_name", "")
+            name = raw_name if raw_name else ("me" if role == "assistant" else "?")
             snippet = r.get("snippet", "")
             lines.append(f"[{plat} | {ts} | {name}] {snippet}")
 

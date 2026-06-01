@@ -51,6 +51,7 @@ _DEFAULT_IDENTITY: dict[str, str] = {
 
 _DEFAULT_CONFIG: dict = {
     "agent_name": "Aria",
+    "command_center_name": "Command Center",
     "agent_profile_image": "",
     "additional_context": "",
     "tools": {

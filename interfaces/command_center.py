@@ -97,6 +97,7 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         return JSONResponse(
             {
                 "agent_name": cfg.get("agent_name", "Agent"),
+                "command_center_name": cfg.get("command_center_name", "Command Center"),
                 "agent_profile_image": cfg.get("agent_profile_image", ""),
                 "model_provider": settings.model_provider,
                 "model_name": model_name,
@@ -115,13 +116,14 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         message: str = Form(""),
         conversation_id: str = Form("default"),
         command_user_id: str = Form(""),
-        display_name: str = Form("Command Center"),
+        display_name: str = Form(""),
         files: list[UploadFile] | None = File(default=None),
     ) -> JSONResponse:
         cleaned_message = message.strip()
         cleaned_conversation_id = _command_channel_id(conversation_id)
         cleaned_command_user_id = _command_user_id(command_user_id)
-        cleaned_display_name = display_name.strip() or "Command Center"
+        cfg = get_agent_config()
+        cleaned_display_name = display_name.strip() or cfg.get("command_center_name", "Command Center")
         uploads = files or []
 
         if not cleaned_message and not uploads:

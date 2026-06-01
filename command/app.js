@@ -3,11 +3,11 @@ const navLinks = Array.from(document.querySelectorAll('.nav-link'));
 const panels = Array.from(document.querySelectorAll('.panel'));
 const openStandalone = document.getElementById('open-standalone');
 const newSessionButton = document.getElementById('new-session');
+const filePickerButton = document.getElementById('file-picker-button');
 const sendButton = document.getElementById('send-button');
 const sendButtonEnabledInput = document.getElementById('send-button-enabled');
 const sendStatus = document.getElementById('send-status');
 const messageInput = document.getElementById('message-input');
-const displayNameInput = document.getElementById('display-name');
 const fileInput = document.getElementById('file-input');
 const attachmentList = document.getElementById('attachment-list');
 const libraryTitleInput = document.getElementById('library-title');
@@ -15,6 +15,7 @@ const libraryTagsInput = document.getElementById('library-tags');
 const libraryPlatformsInput = document.getElementById('library-platforms');
 const libraryAlwaysOnInput = document.getElementById('library-always-on');
 const libraryFileInput = document.getElementById('library-file-input');
+const libraryPickerButton = document.getElementById('library-picker-button');
 const libraryAttachmentList = document.getElementById('library-attachment-list');
 const libraryUploadButton = document.getElementById('library-upload-button');
 const libraryStatus = document.getElementById('library-status');
@@ -29,7 +30,6 @@ const libraryDeleteButton = document.getElementById('library-delete-button');
 const libraryBrowserStatus = document.getElementById('library-browser-status');
 const chatStream = document.getElementById('chat-stream');
 const agentName = document.getElementById('agent-name');
-const brandProfileImage = document.getElementById('brand-profile-image');
 const runtimeProfile = document.getElementById('runtime-profile');
 const runtimeProfileImage = document.getElementById('runtime-profile-image');
 const providerName = document.getElementById('provider-name');
@@ -46,12 +46,12 @@ let selectedLibraryId = '';
 let commandPreferences = loadPreferences();
 let agentIdentity = {
   name: 'Agent',
+  commandCenterName: 'Command Center',
   profileImage: '',
 };
 localStorage.setItem(sessionKey, conversationId);
 localStorage.setItem(userKey, commandUserId);
 
-displayNameInput.value = commandPreferences.displayName;
 sendButtonEnabledInput.checked = commandPreferences.sendButtonEnabled;
 applySendButtonPreference();
 
@@ -68,10 +68,8 @@ newSessionButton.addEventListener('click', () => {
 
 fileInput.addEventListener('change', renderAttachmentList);
 libraryFileInput.addEventListener('change', renderLibraryAttachmentList);
-displayNameInput.addEventListener('input', () => {
-  commandPreferences.displayName = displayNameInput.value;
-  persistPreferences();
-});
+filePickerButton.addEventListener('click', () => fileInput.click());
+libraryPickerButton.addEventListener('click', () => libraryFileInput.click());
 sendButtonEnabledInput.addEventListener('change', () => {
   commandPreferences.sendButtonEnabled = sendButtonEnabledInput.checked;
   persistPreferences();
@@ -116,6 +114,7 @@ async function loadStatus() {
     const data = await response.json();
     agentIdentity = {
       name: data.agent_name || 'Agent',
+      commandCenterName: data.command_center_name || 'Command Center',
       profileImage: data.agent_profile_image || '',
     };
     agentName.textContent = agentIdentity.name;
@@ -191,16 +190,13 @@ async function sendMessage() {
     return;
   }
 
-  const displayName = displayNameInput.value.trim() || 'Command Center';
-  commandPreferences.displayName = displayName;
-  persistPreferences();
   appendMessage('user', text || buildAttachmentPrompt(files), files);
 
   const formData = new FormData();
   formData.append('message', text);
   formData.append('conversation_id', conversationId);
   formData.append('command_user_id', commandUserId);
-  formData.append('display_name', displayName);
+  formData.append('display_name', agentIdentity.commandCenterName || 'Command Center');
   for (const file of files) {
     formData.append('files', file);
   }
@@ -501,18 +497,15 @@ function loadPreferences() {
     const raw = localStorage.getItem(preferencesKey);
     if (!raw) {
       return {
-        displayName: 'Command Center',
         sendButtonEnabled: true,
       };
     }
     const parsed = JSON.parse(raw);
     return {
-      displayName: typeof parsed.displayName === 'string' && parsed.displayName ? parsed.displayName : 'Command Center',
       sendButtonEnabled: parsed.sendButtonEnabled !== false,
     };
   } catch {
     return {
-      displayName: 'Command Center',
       sendButtonEnabled: true,
     };
   }
@@ -530,18 +523,16 @@ function setSendBusy(isBusy) {
   sendButton.disabled = isBusy || !sendButtonEnabledInput.checked;
   messageInput.disabled = isBusy;
   fileInput.disabled = isBusy;
+  filePickerButton.disabled = isBusy;
 }
 
 function renderRuntimeProfile() {
   const hasProfileImage = Boolean(agentIdentity.profileImage);
   runtimeProfile.classList.toggle('hidden', !hasProfileImage);
-  brandProfileImage.classList.toggle('hidden', !hasProfileImage);
   if (hasProfileImage) {
     runtimeProfileImage.src = agentIdentity.profileImage;
-    brandProfileImage.src = agentIdentity.profileImage;
   } else {
     runtimeProfileImage.removeAttribute('src');
-    brandProfileImage.removeAttribute('src');
   }
 }
 

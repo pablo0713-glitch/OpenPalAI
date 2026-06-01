@@ -10,7 +10,6 @@
   <div class="shell">
     <aside class="rail">
       <div class="brand">
-        <img class="brand-profile-image hidden" id="brand-profile-image" alt="Agent profile image">
         <span class="brand-mark">✦</span>
         <div>
           <p class="eyebrow">Trixxie</p>
@@ -51,91 +50,63 @@
 
       <section class="panel active" id="chat-panel">
         <div class="chat-layout">
-          <section class="composer-card">
-            <div class="composer-meta">
-              <label>
-                Display name
-                <input id="display-name" type="text" value="Command Center">
-              </label>
-              <label>
-                Attach files for chat
-                <input id="file-input" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.yaml,.yml,.xml,.csv,.py,.js,.ts,.tsx,.jsx,.html,.css,.sql,.sh,.log,.pdf,.docx">
-              </label>
-            </div>
-
-            <div class="attachment-list" id="attachment-list"></div>
-
-            <label class="message-field">
-              Message
-              <textarea id="message-input" rows="5" placeholder="Talk to the agent, or upload an image/document and ask a question about it."></textarea>
-            </label>
-
-            <div class="composer-actions">
-              <label class="checkbox-row compact-checkbox send-toggle">
-                <input id="send-button-enabled" type="checkbox" checked>
-                <span>Enable send button</span>
-              </label>
-              <button class="primary-button" id="send-button">Send</button>
-              <span class="inline-status" id="send-status">Ready</span>
-            </div>
-
-            <section class="library-ingest-card">
-              <div class="library-ingest-head">
-                <div>
-                  <p class="eyebrow">Library Ingest</p>
-                  <p class="library-copy">Upload source documents here to create modules in <code>data/library</code>.</p>
-                </div>
-              </div>
-
-              <div class="composer-meta">
-                <label>
-                  Optional module title
-                  <input id="library-title" type="text" placeholder="Use filename if blank">
-                </label>
-                <label>
-                  Tags
-                  <input id="library-tags" type="text" placeholder="research, lore, reference">
-                </label>
-                <label>
-                  Platforms
-                  <input id="library-platforms" type="text" placeholder="sl, discord">
-                </label>
-                <label class="checkbox-row">
-                  <input id="library-always-on" type="checkbox">
-                  <span>Mark as always-on</span>
-                </label>
-                <label>
-                  Upload documents to library
-                  <input id="library-file-input" type="file" multiple accept=".txt,.md,.markdown,.json,.yaml,.yml,.xml,.csv,.py,.js,.ts,.tsx,.jsx,.html,.css,.sql,.sh,.log,.pdf,.docx">
-                </label>
-              </div>
-
-              <div class="attachment-list" id="library-attachment-list"></div>
-
-              <div class="composer-actions">
-                <button class="ghost-button" id="library-upload-button">Add To Library</button>
-                <span class="inline-status" id="library-status">Ready</span>
-              </div>
-            </section>
-          </section>
-
           <section class="chat-card">
-            <div class="chat-stream" id="chat-stream"></div>
+            <div class="chat-shell">
+              <div class="chat-stream" id="chat-stream"></div>
+              <div class="chat-composer">
+                <input id="file-input" class="hidden" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.yaml,.yml,.xml,.csv,.py,.js,.ts,.tsx,.jsx,.html,.css,.sql,.sh,.log,.pdf,.docx">
+                <div class="attachment-list" id="attachment-list"></div>
+                <textarea id="message-input" rows="4" placeholder="Talk to the agent, or attach an image/document and ask a question about it."></textarea>
+                <div class="composer-actions chat-actions">
+                  <button class="attach-button" id="file-picker-button" type="button" aria-label="Attach files">+</button>
+                  <label class="checkbox-row compact-checkbox send-toggle">
+                    <input id="send-button-enabled" type="checkbox" checked>
+                    <span>Enable send button</span>
+                  </label>
+                  <button class="primary-button" id="send-button">Send</button>
+                  <span class="inline-status" id="send-status">Ready</span>
+                </div>
+                <p class="chat-upload-note" id="upload-note">Uploads: images, text-like docs, PDF, and DOCX, up to 5 MB each</p>
+              </div>
+            </div>
           </section>
         </div>
       </section>
 
       <section class="panel library-panel" id="library-panel">
         <div class="library-layout">
-          <section class="library-list-card">
-            <div class="library-toolbar">
+          <section class="library-ingest-card library-ingest-panel">
+            <div class="library-ingest-head">
               <div>
-                <p class="eyebrow">Modules</p>
-                <p class="library-copy">Browse what is currently available in <code>data/library</code>.</p>
+                <p class="eyebrow">Library Ingest</p>
+                <p class="library-copy">Upload source documents here to create modules in <code>data/library</code>.</p>
               </div>
-              <button class="ghost-button" id="library-refresh-button">Refresh</button>
             </div>
-            <div class="library-list" id="library-list"></div>
+            <div class="composer-meta">
+              <label>
+                Optional module title
+                <input id="library-title" type="text" placeholder="Use filename if blank">
+              </label>
+              <label>
+                Tags
+                <input id="library-tags" type="text" placeholder="research, lore, reference">
+              </label>
+              <label>
+                Platforms
+                <input id="library-platforms" type="text" placeholder="sl, discord">
+              </label>
+              <label class="checkbox-row">
+                <input id="library-always-on" type="checkbox">
+                <span>Mark as always-on</span>
+              </label>
+              <input id="library-file-input" class="hidden" type="file" multiple accept=".txt,.md,.markdown,.json,.yaml,.yml,.xml,.csv,.py,.js,.ts,.tsx,.jsx,.html,.css,.sql,.sh,.log,.pdf,.docx">
+              <div class="library-ingest-controls">
+                <button class="ghost-button" id="library-picker-button" type="button">Choose Files</button>
+                <button class="ghost-button" id="library-upload-button">Add To Library</button>
+              </div>
+            </div>
+            <div class="attachment-list" id="library-attachment-list"></div>
+            <span class="inline-status" id="library-status">Ready</span>
           </section>
 
           <section class="library-detail-card">
@@ -157,6 +128,17 @@
             <div class="library-meta" id="library-meta"></div>
             <pre class="library-preview" id="library-preview">No module selected.</pre>
             <span class="inline-status" id="library-browser-status">Ready</span>
+          </section>
+
+          <section class="library-list-card">
+            <div class="library-toolbar">
+              <div>
+                <p class="eyebrow">Modules</p>
+                <p class="library-copy">Browse what is currently available in <code>data/library</code>.</p>
+              </div>
+              <button class="ghost-button" id="library-refresh-button">Refresh</button>
+            </div>
+            <div class="library-list" id="library-list"></div>
           </section>
         </div>
       </section>

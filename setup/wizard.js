@@ -95,6 +95,7 @@ const STEP_NAMES = ['Agent', 'Model', 'Platforms', 'Identity', 'Tools', 'Context
 
 const state = {
   agent_name: D.agent_name,
+  command_center_name: 'Command Center',
   agent_profile_image: '',
   owner_sl_name: '',
   owner_discord_name: '',
@@ -237,6 +238,9 @@ function applyConfig(config) {
   if (env.OWNER_SL_NAME)      state.owner_sl_name      = env.OWNER_SL_NAME;
   if (env.OWNER_DISCORD_NAME) state.owner_discord_name = env.OWNER_DISCORD_NAME;
   if (ag.agent_name) state.agent_name = ag.agent_name;
+  if (typeof ag.command_center_name === 'string' && ag.command_center_name.trim()) {
+    state.command_center_name = ag.command_center_name;
+  }
   if (typeof ag.agent_profile_image === 'string') state.agent_profile_image = ag.agent_profile_image;
   const id = (ag.identity && typeof ag.identity === 'object') ? ag.identity : {};
   if (id.agent_md) state.agent_md = id.agent_md;
@@ -337,6 +341,11 @@ function buildStep1() {
       You are <strong id="name-live">${esc(state.agent_name) || 'your agent'}</strong>.
     </div>
     <div class="form-group" style="margin-top:1.5rem">
+      <label for="f-command-center-name">Command Center Name</label>
+      <input type="text" id="f-command-center-name" class="form-input" value="${esc(state.command_center_name)}" placeholder="Command Center" maxlength="80">
+      <p class="form-hint">Used as the persistent browser identity for command center chats and memory.</p>
+    </div>
+    <div class="form-group" style="margin-top:1.5rem">
       <label for="f-profile-image">Profile Image <span class="label-opt">(optional)</span></label>
       <input type="file" id="f-profile-image" class="hidden" accept="image/*">
       <div class="profile-image-picker">
@@ -420,6 +429,7 @@ function bindStep1() {
 
 function collectStep1() {
   state.agent_name         = val('f-name') || state.agent_name;
+  state.command_center_name = val('f-command-center-name') || 'Command Center';
   state.owner_sl_name      = val('f-owner-sl-name');
   state.owner_discord_name = val('f-owner-discord-name');
 }
@@ -1229,6 +1239,7 @@ async function save() {
     },
     agent_config: {
       agent_name: state.agent_name,
+      command_center_name: state.command_center_name || 'Command Center',
       agent_profile_image: state.agent_profile_image,
       identity: {
         agent_md: state.agent_md,

@@ -55,16 +55,6 @@ a {
   margin-bottom: 28px;
 }
 
-.brand-profile-image {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid var(--border);
-  background: var(--surface-strong);
-  flex-shrink: 0;
-}
-
 .brand-mark {
   width: 48px;
   height: 48px;
@@ -142,7 +132,6 @@ h2 {
 }
 
 .status-card,
-.composer-card,
 .chat-card,
 .frame-toolbar {
   background: var(--surface);
@@ -224,21 +213,18 @@ h2 {
 }
 
 .chat-layout {
-  display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-  gap: 18px;
+  display: block;
   min-height: calc(100vh - 154px);
 }
 
-.composer-card,
 .chat-card {
   padding: 20px;
 }
 
-.composer-card {
+.chat-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  min-height: calc(100vh - 154px);
 }
 
 .composer-meta {
@@ -285,20 +271,22 @@ textarea {
   min-height: 12px;
 }
 
-.library-ingest-card {
-  margin-top: 4px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
+.chat-shell {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  flex: 1;
 }
 
-.library-ingest-head {
+.chat-stream {
+  flex: 1;
+  min-height: 0;
+  max-height: calc(100vh - 340px);
+  overflow-y: auto;
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 14px;
+  padding-right: 6px;
 }
 
 .library-copy {
@@ -336,6 +324,40 @@ textarea {
   gap: 14px;
 }
 
+.chat-composer {
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-actions {
+  align-items: center;
+}
+
+.attach-button {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-strong);
+  color: var(--text);
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.attach-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.chat-upload-note {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 .send-toggle {
   grid-template-columns: auto 1fr;
   padding: 10px 12px;
@@ -364,10 +386,6 @@ textarea {
   font-size: 14px;
 }
 
-.chat-card {
-  min-height: 0;
-}
-
 .library-panel {
   display: none;
 }
@@ -378,11 +396,12 @@ textarea {
 
 .library-layout {
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 0.8fr) minmax(420px, 1.6fr) minmax(220px, 0.7fr);
   gap: 18px;
   min-height: calc(100vh - 154px);
 }
 
+.library-ingest-card,
 .library-list-card,
 .library-detail-card {
   background: var(--surface);
@@ -390,6 +409,25 @@ textarea {
   border-radius: 8px;
   box-shadow: var(--shadow);
   padding: 20px;
+}
+
+.library-ingest-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.library-ingest-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.library-ingest-controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .library-toolbar,
@@ -405,7 +443,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: calc(100vh - 260px);
+  max-height: calc(100vh - 250px);
   overflow: auto;
 }
 
@@ -483,7 +521,7 @@ textarea {
 
 .library-preview {
   flex: 1;
-  min-height: 420px;
+  min-height: 520px;
   margin: 0;
   padding: 18px;
   border-radius: 8px;
@@ -492,16 +530,6 @@ textarea {
   overflow: auto;
   white-space: pre-wrap;
   line-height: 1.6;
-}
-
-.chat-stream {
-  height: 100%;
-  max-height: calc(100vh - 194px);
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-right: 6px;
 }
 
 .message {
@@ -593,7 +621,7 @@ textarea {
   }
 
   .chat-layout {
-    grid-template-columns: 1fr;
+    min-height: auto;
   }
 
   .library-layout {
@@ -602,7 +630,7 @@ textarea {
 
   .chat-stream {
     max-height: none;
-    min-height: 420px;
+    min-height: 360px;
   }
 }
 
@@ -616,6 +644,10 @@ textarea {
   .frame-toolbar,
   .composer-actions {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chat-actions {
     align-items: stretch;
   }
 

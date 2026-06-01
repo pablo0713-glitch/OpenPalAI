@@ -338,13 +338,23 @@ function buildStep1() {
     </div>
     <div class="form-group" style="margin-top:1.5rem">
       <label for="f-profile-image">Profile Image <span class="label-opt">(optional)</span></label>
-      <input type="file" id="f-profile-image" class="form-input" accept="image/*">
+      <input type="file" id="f-profile-image" class="hidden" accept="image/*">
+      <div class="profile-image-picker">
+        <div>
+          <div class="profile-image-label">Command Center Avatar</div>
+          <div class="profile-image-meta" id="profile-image-meta">No image selected</div>
+        </div>
+        <div class="profile-image-actions">
+          <button type="button" class="btn btn-ghost" id="choose-profile-image">Upload Image</button>
+          <button type="button" class="btn btn-ghost hidden" id="clear-profile-image">Remove</button>
+        </div>
+      </div>
       <p class="form-hint">Used in the command center runtime card and next to the agent name in chat replies. Stored with the wizard config.</p>
       <div class="name-preview hidden" id="profile-image-preview-wrap" style="margin-top:0.75rem;font-style:normal">
         <strong style="display:block;margin-bottom:0.6rem">Preview</strong>
         <div style="display:flex;align-items:center;gap:0.85rem">
           <img id="profile-image-preview" alt="Agent profile preview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:1px solid var(--border)">
-          <button type="button" class="btn btn-ghost" id="clear-profile-image">Remove image</button>
+          <span class="profile-image-meta">This image will appear in the command center rail, runtime card, and agent chat replies.</span>
         </div>
       </div>
     </div>
@@ -366,9 +376,16 @@ function bindStep1() {
   if (inp) inp.addEventListener('input', () => { live.textContent = inp.value || 'your agent'; });
 
   const fileInput = document.getElementById('f-profile-image');
+  const chooseButton = document.getElementById('choose-profile-image');
   const clearButton = document.getElementById('clear-profile-image');
 
   renderProfileImagePreview();
+
+  if (chooseButton && fileInput) {
+    chooseButton.addEventListener('click', () => {
+      fileInput.click();
+    });
+  }
 
   if (fileInput) {
     fileInput.addEventListener('change', async () => {
@@ -410,11 +427,19 @@ function collectStep1() {
 function renderProfileImagePreview() {
   const wrap = document.getElementById('profile-image-preview-wrap');
   const img = document.getElementById('profile-image-preview');
+  const meta = document.getElementById('profile-image-meta');
+  const clearButton = document.getElementById('clear-profile-image');
   if (!wrap || !img) {
     return;
   }
   const hasImage = Boolean(state.agent_profile_image);
   wrap.classList.toggle('hidden', !hasImage);
+  if (meta) {
+    meta.textContent = hasImage ? 'Image selected and ready to save' : 'No image selected';
+  }
+  if (clearButton) {
+    clearButton.classList.toggle('hidden', !hasImage);
+  }
   if (hasImage) {
     img.src = state.agent_profile_image;
   } else {

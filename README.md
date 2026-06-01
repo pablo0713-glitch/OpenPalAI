@@ -1,7 +1,7 @@
 # Trixxie — Friendly Companion Agent
 ![Trixxie HUD Banner](trixxiebanner.png)
 
-A self-hosted AI companion that lives simultaneously in **Second Life** (or OpenSimulator) and **Discord**. Powered by **Claude (Anthropic)**, **OpenAI**, **Gemini**, **Grok**, **OpenRouter**, or any local model via **Ollama** or **LM Studio**. Personality, memory, tools, and platform behavior are fully configurable through a browser-based setup wizard — no code editing required. 
+A self-hosted AI companion that lives simultaneously in **Second Life** (or OpenSimulator) and **Discord**. Powered by **Claude (Anthropic)**, **OpenAI**, **Gemini**, **Grok**, **OpenRouter**, or any local model via **Ollama** or **LM Studio**. Personality, memory, tools, and platform behavior are configurable through a browser-based **Command Center** that unifies setup, chat, library management, and debugging — no code editing required.
 
 Now with Cloud deployment and persistence! Read the Cloud Deployment & Persistence Guide to learn more.
 ---
@@ -23,6 +23,8 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 | **Importance scoring** | Background agent scores every turn 0–1; only high-value content graduates to long-term memory |
 | **Library modules** | Drop-in reference documents (lore guides, setting rules, style notes) injected into context on demand or always-on |
 | **Supporting agents** | Specialist background agents (Memory Curator, Librarian, Semantic Recall) each with configurable provider and model |
+| **Command Center** | Unified web UI for chat, setup, debug, and library management at `/command` |
+| **Document uploads** | Browser chat accepts images, text-like files, PDF, and DOCX; library ingest turns documents into modules in `data/library` |
 
 ---
 
@@ -87,7 +89,7 @@ python check_install.py
 
 **Companion Setup**
 
-1. **Open the wizard** → **[http://localhost:8080/setup](http://localhost:8080/setup)**
+1. **Open the command center** → **[http://localhost:8080/command](http://localhost:8080/command)**
 
 2. **Pick your AI model** — paste your Anthropic, OpenAI, or other provider API key, or point it at your local Ollama instance
 
@@ -95,9 +97,29 @@ python check_install.py
 
 4. **Write your agent's persona** — name, personality, identity files. Be specific; vague descriptions produce vague personalities
 
-5. **Save** — the wizard writes your config and the agent begins responding immediately
+5. **Save** — the wizard writes your config and the agent begins responding immediately. Use the Chat panel in the same command center to test messages and uploads right away.
 
-> For Second Life, continue to the **Second Life Setup** section after completing the wizard.
+> For Second Life, continue to the **Second Life Setup** section after completing setup.
+
+## Command Center
+
+The main browser entry point is **[http://localhost:8080/command](http://localhost:8080/command)**.
+
+It combines four workflows in one place:
+
+- **Chat** — talk to the agent directly from the browser using the real `AgentCore` pipeline.
+- **Library** — browse imported modules, preview content, toggle `always_on`, and delete modules.
+- **Setup** — the existing setup wizard embedded in-place.
+- **Debug** — the existing live debug view embedded in-place.
+
+The Chat panel supports:
+
+- image uploads (`png`, `jpg`, `gif`, `webp`)
+- text-like documents (`txt`, `md`, `json`, `py`, `html`, `css`, `csv`, `xml`, `yaml`, etc.)
+- `PDF` and `DOCX` uploads for question-answering in chat
+- a separate **Add To Library** flow that converts uploaded documents into `data/library/*.md` modules
+
+`/setup` and `/debug` still work directly, but `/command` is the intended browser control surface.
 
 ---
 
@@ -449,6 +471,12 @@ tags: ["roleplay", "gor"]
 - `always_on: false` — the Librarian agent retrieves it when the conversation calls for it
 - `platforms` — restrict a module to `sl`, `discord`, or leave empty for both
 
+You can also create and manage modules from the Command Center:
+
+- open `/command`
+- in **Chat**, use the library-ingest upload controls to import text-like files, PDF, or DOCX into `data/library`
+- in **Library**, preview modules, toggle `always_on`, refresh the list, or delete modules
+
 Example interactions:
 ```
 "Remember that I love the Botanical sim."
@@ -479,6 +507,8 @@ Use this to verify sensor data is arriving, inspect what the model actually sees
 
 The page also includes a **Reset Memory** button (top right, red). Clicking it shows a confirmation modal — confirming wipes all conversation history, memory files, session index, and avatar records. Useful for a clean-slate restart without stopping the agent.
 
+The same debug view is embedded inside the Command Center, so you can inspect logs and prompts without leaving `/command`.
+
 </details>
 
 ---
@@ -493,6 +523,10 @@ companion-agent/
 ├── main.py                      Entry point — starts Discord bot + SL bridge + wizard
 ├── run.sh                       Activates venv and starts main.py
 ├── config/settings.py           Loads all config from environment variables
+├── command/
+│   ├── index.html               Command Center shell (Chat, Library, Setup, Debug)
+│   ├── style.css                Command Center styling
+│   └── app.js                   Command Center client logic + library browser
 ├── core/
 │   ├── agent.py                 AgentCore — shared brain, async tool loop
 │   ├── model_adapter.py         Anthropic and OpenAI-compatible backends, prompt caching
@@ -514,6 +548,7 @@ companion-agent/
 ├── interfaces/
 │   ├── discord_bot/             Discord interface (discord.py)
 │   ├── sl_bridge/               FastAPI HTTP bridge — /sl/message and /sl/sensor
+│   ├── command_center.py        Command Center router (chat, uploads, library browser)
 │   ├── setup_server.py          Wizard API router (includes library CRUD)
 │   └── debug_server.py          Debug page + SSE log stream
 ├── setup/

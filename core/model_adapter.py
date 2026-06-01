@@ -240,11 +240,29 @@ def _to_openai_messages(system: str, messages: list) -> list[dict]:
                             "content": str(_get_field(tr, "content") or ""),
                         })
                 else:
-                    text = " ".join(
-                        _get_field(b, "text") or ""
-                        for b in content if _block_type(b) == "text"
-                    )
-                    result.append({"role": "user", "content": text})
+                    user_parts: list[dict] = []
+                    for block in content:
+                        btype = _block_type(block)
+                        if btype == "text":
+                            text = _get_field(block, "text") or ""
+                            if text:
+                                user_parts.append({"type": "text", "text": text})
+                        elif btype == "image":
+                            source = _get_field(block, "source") or {}
+                            media_type = source.get("media_type")
+                            data = source.get("data")
+                            if media_type and data:
+                                user_parts.append({
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:{media_type};base64,{data}"},
+                                })
+
+                    if not user_parts:
+                        result.append({"role": "user", "content": ""})
+                    elif len(user_parts) == 1 and user_parts[0]["type"] == "text":
+                        result.append({"role": "user", "content": user_parts[0]["text"]})
+                    else:
+                        result.append({"role": "user", "content": user_parts})
 
         elif role == "assistant":
             if isinstance(content, str):

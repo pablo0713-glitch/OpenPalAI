@@ -18,6 +18,7 @@ from core.rate_limiter import RateLimiter
 from core.recall_agent import SemanticRecallAgent
 from core.supporting_agent import make_supporting_adapter
 from core.tools import ToolRegistry
+from interfaces.command_center import create_command_center_router
 from interfaces.discord_bot.bot import TrixxieBot
 from interfaces.debug_server import create_debug_router, install_log_handler
 from interfaces.setup_server import create_setup_router, patch_scripts_from_env
@@ -257,10 +258,16 @@ async def main() -> None:
 
     # ---- Setup wizard ----
     sl_app.include_router(create_setup_router())
+    sl_app.include_router(create_command_center_router(agent, settings))
     sl_app.mount(
         "/setup/static",
         StaticFiles(directory=str(Path(__file__).parent / "setup")),
         name="setup_static",
+    )
+    sl_app.mount(
+        "/command/static",
+        StaticFiles(directory=str(Path(__file__).parent / "command")),
+        name="command_static",
     )
 
     config = uvicorn.Config(

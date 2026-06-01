@@ -2,7 +2,7 @@
 
 ## Overview
 
-Trixxie is a stateful AI agent built around a single shared core (`AgentCore`) that serves two platform interfaces simultaneously. The core handles identity, memory, tool use, and the Claude API loop. The interfaces handle platform-specific protocol, formatting, and delivery.
+Trixxie is a stateful AI agent built around a single shared core (`AgentCore`) that serves two platform interfaces simultaneously plus a unified web control surface. The core handles identity, memory, tool use, and the Claude API loop. The interfaces handle platform-specific protocol, formatting, and delivery.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -11,26 +11,35 @@ Trixxie is a stateful AI agent built around a single shared core (`AgentCore`) t
 └──────────────────┬──────────────────┬───────────────┘
                    │                  │
      ┌─────────────▼──────┐  ┌────────▼──────────────┐
-     │   Discord Bot       │  │   SL HTTP Bridge       │
-     │   (discord.py)      │  │   (FastAPI + uvicorn)  │
-     │                     │  │                        │
-     │   @mention / DM     │  │   POST /sl/message     │
-     │   → AgentCore       │  │   ← JSON reply         │
-     │   ← chunked reply   │  │                        │
-     └─────────────────────┘  └──────┬──────────┬──────┘
-                                     │          │
-                          PostHTTP   │          │ llHTTPRequest
-                   ┌─────────────────▼──┐  ┌───▼────────────────┐
-                   │  Cool VL Viewer     │  │  LSL HUD            │
-                   │  automation.lua     │  │  (worn by Trixxie)  │
+     │   Discord Bot      │  │   SL HTTP Bridge      │
+     │   (discord.py)     │  │   (FastAPI + uvicorn) │
+     │                    │  │                       │
+     │   @mention / DM    │  │   POST /sl/message    │
+     │   → AgentCore      │  │   ← JSON reply        │
+     │   ← chunked reply  │  │                       │
+     └────────────────────┘  └──────┬─────────┬──────┘
+                                     │         │
+                          Browser UI │         │ llHTTPRequest
+                   ┌─────────────────▼──┐  ┌──▼─────────────────┐
+                   │  Command Center     │  │  LSL HUD            │
+                   │  /command           │  │  (worn by Trixxie)  │
                    │                     │  │                     │
-                   │  private IM → POST  │  │  /42 msg → POST     │
-                   │  typing indicator   │  │  sensor data → POST │
-                   │  reply → SendIM     │  │  reply → llIM       │
-                   └─────────────────────┘  └─────────────────────┘
+                   │  chat / library /   │  │  /42 msg → POST     │
+                   │  setup / debug      │  │  sensor data → POST │
+                   └──────────┬──────────┘  │  reply → llIM       │
+                              │             └─────────────────────┘
+                     PostHTTP │
+                   ┌──────────▼──────────┐
+                   │  Cool VL Viewer     │
+                   │  automation.lua     │
+                   │                     │
+                   │  private IM → POST  │
+                   │  typing indicator   │
+                   │  reply → SendIM     │
+                   └─────────────────────┘
 ```
 
-Both interfaces share the same `AgentCore`, `FileMemoryStore`, `LocationStore`, and `AvatarStore`. A `PersonMap` links platform-specific user IDs to a canonical person identity so that conversations on either platform inform the same memory context.
+Both interfaces and the web control surface share the same `AgentCore`, `FileMemoryStore`, `LocationStore`, and `AvatarStore`. A `PersonMap` links platform-specific user IDs to a canonical person identity so that conversations on either platform inform the same memory context. The web command center reuses the same `AgentCore` path for browser chat, document uploads, and library-module management rather than maintaining a separate toy inference path.
 
 ---
 
@@ -366,6 +375,16 @@ lua/
                                           owner's viewer to forward the agent's replies back
                                           to the bridge, producing a hallucination loop.
 
+command/
+  index.html                              Unified command-center shell. Panels: Chat,
+                                          Library, Setup, Debug.
+  style.css                               Command-center styling. Chat composer,
+                                          library browser, and embedded iframe panels.
+  app.js                                  Client logic for /command. Handles chat sends,
+                                          chat uploads, document-to-library ingest,
+                                          library list/detail browsing, always_on toggle,
+                                          and delete actions.
+
 setup/
   index.html                              Wizard shell — step bar, content area, footer.
   style.css                               Dark theme, toggle switches, platform/tool cards.
@@ -394,6 +413,25 @@ setup/
                                           true, a yellow warning banner is displayed.
 
 interfaces/
+  command_center.py                       FastAPI APIRouter for the unified web control
+                                          surface.
+                                          GET /              — redirect to /command.
+                                          GET /command       — command-center page.
+                                          GET /command/status — model/provider/upload caps.
+                                          POST /command/chat — browser chat entry point.
+                                            Reuses AgentCore.handle_message() with
+                                            synthetic command_* user/channel ids.
+                                            Accepts text, images, text-like docs, PDF,
+                                            and DOCX uploads.
+                                          POST /command/library-upload — converts uploaded
+                                            documents into data/library/*.md modules with
+                                            generated front-matter and extracted text.
+                                          GET /command/library — list library modules.
+                                          GET /command/library/{module_id} — preview one.
+                                          PATCH /command/library/{module_id} — toggle
+                                            always_on for a module.
+                                          DELETE /command/library/{module_id} — delete one.
+
   setup_server.py                         FastAPI APIRouter for the setup wizard.
                                           GET /setup, /setup/status, /setup/config.
                                           POST /setup/config — writes .env and
@@ -698,7 +736,7 @@ tags: ["roleplay", "gor"]
 # full content here...
 ```
 
-Manage modules via the wizard at `/setup` → Library tab, or directly via the API (`GET/POST /setup/library`, `DELETE /setup/library/{id}`).
+Manage modules via the command center at `/command` → Library, via the Chat panel's Library Ingest upload flow, or directly via the API (`GET/POST /setup/library`, `DELETE /setup/library/{id}`, `GET/PATCH/DELETE /command/library/{id}`). The command-center ingest path accepts text-like documents, PDF, and DOCX, generates valid front-matter automatically, and stores extracted text in `data/library/*.md`.
 
 ---
 

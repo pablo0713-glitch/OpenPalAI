@@ -6,7 +6,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import time
 
@@ -44,6 +44,27 @@ def _get_role(turn: dict) -> str:
 
 def _get_content(turn: dict):
     return turn.get("content") if isinstance(turn, dict) else getattr(turn, "content", None)
+
+
+def _content_text(content: str | list[dict[str, Any]]) -> str:
+    if isinstance(content, str):
+        return content
+
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            text = str(block.get("text", "")).strip()
+            if text:
+                parts.append(text)
+        elif btype == "image":
+            source = block.get("source") or {}
+            media_type = source.get("media_type", "image")
+            parts.append(f"[Image attachment: {media_type}]")
+
+    return "\n\n".join(parts).strip()
 
 
 def _is_tool_result_turn(turn: dict) -> bool:
@@ -130,12 +151,15 @@ class AgentCore:
         self._last_prompt: dict[str, str] = {}
         self._last_exchange: dict[str, dict] = {}
 
-    async def handle_message(self, message: str, context: MessageContext) -> AgentResponse:
+    async def handle_message(self, message: str | list[dict[str, Any]], context: MessageContext) -> AgentResponse:
         if not self._rate_limiter.check(context.user_id):
             return AgentResponse(
                 text="Give me a second — you're moving fast. Try again in a moment.",
                 was_rate_limited=True,
             )
+
+        message_content = message
+        message_text = _content_text(message_content)
 
         history = await self._memory.get_history(context.user_id, context.channel_id)
         facts = await self._memory.get_facts(context.user_id)
@@ -202,7 +226,7 @@ class AgentCore:
             "has_block2": len(system_blocks) > 2,
             "library_context_chars": len(library_context),
         }
-        messages = _sanitize_history(list(history)) + [{"role": "user", "content": message}]
+        messages = _sanitize_history(list(history)) + [{"role": "user", "content": message_content}]
 
         sl_action_queue: list[dict] = []
         try:
@@ -213,7 +237,7 @@ class AgentCore:
                 "ts": time.time(),
                 "platform": context.platform,
                 "display_name": context.display_name,
-                "user_message": message,
+                "user_message": message_text,
                 "system_prompt": system_flat,
                 "messages": messages,
                 "reply_text": reply_text,
@@ -235,7 +259,7 @@ class AgentCore:
         # Save user turn only after a successful response — prevents accumulating
         # unresponded user messages in history when the model returns empty.
         await self._memory.append_turn(
-            context.user_id, context.channel_id, context.platform, "user", message,
+            context.user_id, context.channel_id, context.platform, "user", message_content,
             context.display_name, person_id=person_id,
         )
 
@@ -272,7 +296,7 @@ class AgentCore:
 
         # Fire-and-forget STM entry generation
         asyncio.create_task(
-            self._append_stm_entry(context.user_id, message, reply_text)
+            self._append_stm_entry(context.user_id, message_text, reply_text)
         )
 
         return AgentResponse(text=reply_text, sl_actions=sl_action_queue)

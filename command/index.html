@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trixxie Command Center</title>
+  <link rel="stylesheet" href="/command/static/style.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <div class="brand">
+        <span class="brand-mark">✦</span>
+        <div>
+          <p class="eyebrow">Trixxie</p>
+          <h1>Command Center</h1>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="Sections">
+        <button class="nav-link active" data-panel="chat-panel">Chat</button>
+        <button class="nav-link" data-panel="library-panel">Library</button>
+        <button class="nav-link" data-panel="setup-panel">Setup</button>
+        <button class="nav-link" data-panel="debug-panel">Debug</button>
+      </nav>
+
+      <section class="status-card">
+        <p class="eyebrow">Runtime</p>
+        <div class="status-row"><span>Agent</span><strong id="agent-name">Loading…</strong></div>
+        <div class="status-row"><span>Provider</span><strong id="provider-name">—</strong></div>
+        <div class="status-row"><span>Model</span><strong id="model-name">—</strong></div>
+        <p class="status-note" id="upload-note">Uploads: images and text-like docs</p>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Unified Surface</p>
+          <h2 id="panel-title">Chat</h2>
+        </div>
+        <div class="header-actions">
+          <button class="ghost-button" id="new-session">New Chat Session</button>
+          <a class="ghost-button" id="open-standalone" href="/setup" target="_blank" rel="noreferrer">Open Standalone</a>
+        </div>
+      </header>
+
+      <section class="panel active" id="chat-panel">
+        <div class="chat-layout">
+          <section class="composer-card">
+            <div class="composer-meta">
+              <label>
+                Display name
+                <input id="display-name" type="text" value="Command Center">
+              </label>
+              <label>
+                Attach files for chat
+                <input id="file-input" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.yaml,.yml,.xml,.csv,.py,.js,.ts,.tsx,.jsx,.html,.css,.sql,.sh,.log,.pdf,.docx">
+              </label>
+            </div>
+
+            <div class="attachment-list" id="attachment-list"></div>
+
+            <label class="message-field">
+              Message
+              <textarea id="message-input" rows="5" placeholder="Talk to the agent, or upload an image/document and ask a question about it."></textarea>
+            </label>
+
+            <div class="composer-actions">
+              <button class="primary-button" id="send-button">Send</button>
+              <span class="inline-status" id="send-status">Ready</span>
+            </div>
+
+            <section class="library-ingest-card">
+              <div class="library-ingest-head">
+                <div>
+                  <p class="eyebrow">Library Ingest</p>
+                  <p class="library-copy">Upload source documents here to create modules in <code>data/library</code>.</p>
+                </div>
+              </div>
+
+              <div class="composer-meta">
+                <label>
+                  Optional module title
+                  <input id="library-title" type="text" placeholder="Use filename if blank">
+                </label>
+                <label>
+                  Tags
+                  <input id="library-tags" type="text" placeholder="research, lore, reference">
+                </label>
+                <label>
+                  Platforms
+                  <input id="library-platforms" type="text" placeholder="sl, discord">
+                </label>
+                <label class="checkbox-row">
+                  <input id="library-always-on" type="checkbox">
+                  <span>Mark as always-on</span>
+                </label>
+                <label>
+                  Upload documents to library
+                  <input id="library-file-input" type="file" multiple accept=".txt,.md,.markdown,.json,.yaml,.yml,.xml,.csv,.py,.js,.ts,.tsx,.jsx,.html,.css,.sql,.sh,.log,.pdf,.docx">
+                </label>
+              </div>
+
+              <div class="attachment-list" id="library-attachment-list"></div>
+
+              <div class="composer-actions">
+                <button class="ghost-button" id="library-upload-button">Add To Library</button>
+                <span class="inline-status" id="library-status">Ready</span>
+              </div>
+            </section>
+          </section>
+
+          <section class="chat-card">
+            <div class="chat-stream" id="chat-stream">
+              <article class="message agent">
+                <p class="message-role">Agent</p>
+                <div class="message-body">Command Center is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.</div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel library-panel" id="library-panel">
+        <div class="library-layout">
+          <section class="library-list-card">
+            <div class="library-toolbar">
+              <div>
+                <p class="eyebrow">Modules</p>
+                <p class="library-copy">Browse what is currently available in <code>data/library</code>.</p>
+              </div>
+              <button class="ghost-button" id="library-refresh-button">Refresh</button>
+            </div>
+            <div class="library-list" id="library-list"></div>
+          </section>
+
+          <section class="library-detail-card">
+            <div class="library-detail-head">
+              <div>
+                <p class="eyebrow">Preview</p>
+                <h3 id="library-detail-title">Select a module</h3>
+              </div>
+              <div class="library-detail-actions">
+                <label class="checkbox-row compact-checkbox">
+                  <input id="library-detail-always-on" type="checkbox" disabled>
+                  <span>Always-on</span>
+                </label>
+                <button class="ghost-button" id="library-save-button" disabled>Save</button>
+                <button class="ghost-button danger-button" id="library-delete-button" disabled>Delete</button>
+              </div>
+            </div>
+
+            <div class="library-meta" id="library-meta"></div>
+            <pre class="library-preview" id="library-preview">No module selected.</pre>
+            <span class="inline-status" id="library-browser-status">Ready</span>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel frame-panel" id="setup-panel">
+        <div class="frame-toolbar">
+          <p>Setup wizard stays available here without leaving the command center.</p>
+          <a class="ghost-button" href="/setup" target="_blank" rel="noreferrer">Open /setup</a>
+        </div>
+        <iframe class="frame" src="/setup" title="Setup"></iframe>
+      </section>
+
+      <section class="panel frame-panel" id="debug-panel">
+        <div class="frame-toolbar">
+          <p>Debug stays embedded for logs, sensors, and prompt inspection.</p>
+          <a class="ghost-button" href="/debug" target="_blank" rel="noreferrer">Open /debug</a>
+        </div>
+        <iframe class="frame" src="/debug" title="Debug"></iframe>
+      </section>
+    </main>
+  </div>
+
+  <script src="/command/static/app.js"></script>
+</body>
+</html>

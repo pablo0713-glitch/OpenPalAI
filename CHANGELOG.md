@@ -4,6 +4,32 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ---
 
+## 2026-06-01
+
+### Added
+
+- **Command Center** (`interfaces/command_center.py`, `command/`) — New unified web control surface at `/command`. Combines browser chat, a native library browser, the existing setup wizard, and the existing debug page into one entry point. `/` now redirects to `/command`.
+
+- **Browser chat uploads** — The command-center chat panel accepts images, text-like documents, PDF, and DOCX uploads and routes them through the normal `AgentCore` message path rather than a separate simplified handler.
+
+- **PDF/DOCX extraction** — PDF uploads preserve page boundaries and use layout-aware extraction when available; DOCX uploads extract paragraph text, tables rendered as markdown, and embedded image metadata for chat and library-ingest flows.
+
+- **Library ingest from uploads** — Command-center document uploads can be converted directly into `data/library/*.md` modules with generated front-matter, extracted text, and source metadata.
+
+- **Library browser** — New `/command/library*` endpoints and matching UI for listing modules, previewing content, toggling `always_on`, refreshing, and deleting modules without leaving the command center.
+
+### Changed
+
+- **Primary web entry point** — `/command` is now the intended browser surface. `/setup` and `/debug` remain available directly, but are embedded inside the command center.
+
+- **Dependencies** — Added `pypdf` and `python-docx` to support PDF and DOCX parsing.
+
+### Fixed
+
+- **Generated library-module front-matter** — Command-center ingest now writes array fields in a format the existing `LibraryStore` parser can read reliably.
+
+- **Command-center backend import path** — Added the missing `json` import used when writing generated library modules.
+
 ## 2026-05-25
 
 ### Added

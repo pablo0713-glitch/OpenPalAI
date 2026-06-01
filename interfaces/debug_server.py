@@ -216,39 +216,41 @@ _DEBUG_HTML = """<!DOCTYPE html>
 <title>Trixxie — Debug</title>
 <style>
   :root {
-    --bg: #0f0f14; --surface: #1a1a24; --border: #2a2a3a;
-    --accent: #8b5cf6; --text: #e2e2f0; --dim: #6b6b8a;
-    --debug: #6b6b8a; --info: #60a5fa; --warning: #fbbf24;
-    --error: #f87171; --critical: #ff4444; --danger: #dc2626;
+    --bg: #0f0f14; --surface: #1a1a26; --surface2: #22223a; --border: #2d2d44;
+    --accent: #8b5cf6; --accent-hover: #7c3aed; --text: #e2e8f0; --dim: #9490b0; --faint: #55526a;
+    --debug: #9490b0; --info: #60a5fa; --warning: #fbbf24;
+    --error: #ef4444; --critical: #ff4444; --danger: #dc2626;
+    --radius: 8px; --radius-sm: 5px;
   }
-  .btn-danger { background: var(--danger); border: 1px solid #b91c1c; color: #fff; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: monospace; }
-  .btn-danger:hover { background: #b91c1c; }
+  .btn-danger { background: var(--danger); border: 1px solid #b91c1c; color: #fff; padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 600; }
+  .btn-danger:hover { background: #b91c1c; border-color: #b91c1c; color: #fff; }
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; }
   .modal-overlay.open { display: flex; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 24px; max-width: 360px; width: 90%; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 360px; width: 90%; }
   .modal h2 { color: var(--error); font-size: 14px; margin-bottom: 10px; }
   .modal p { color: var(--dim); font-size: 12px; margin-bottom: 18px; line-height: 1.6; }
   .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
-  .modal-btns button { padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: monospace; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  .modal-btns button { padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; font-family: inherit; border: 1px solid var(--border); background: transparent; color: var(--text); }
   .modal-btns .btn-confirm { background: var(--danger); border-color: #b91c1c; color: #fff; }
-  .modal-btns .btn-confirm:hover { background: #b91c1c; }
+  .modal-btns .btn-confirm:hover { background: #b91c1c; color: #fff; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: monospace; font-size: 13px; }
-  header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; background: var(--surface); }
   header h1 { font-size: 15px; color: var(--accent); }
-  header .pill { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--surface); border: 1px solid var(--border); color: var(--dim); }
+  header .pill { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); color: var(--dim); }
   #connected { color: #4ade80; } #disconnected { color: var(--error); }
-  .tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 16px; }
-  .tab { padding: 8px 16px; cursor: pointer; color: var(--dim); border-bottom: 2px solid transparent; }
-  .tab.active { color: var(--text); border-color: var(--accent); }
-  .panel { display: none; padding: 12px 16px; height: calc(100vh - 90px); overflow: hidden; flex-direction: column; gap: 8px; }
+  .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding: 10px 16px 0; background: var(--surface); }
+  .tab { padding: 8px 16px; cursor: pointer; color: var(--dim); border: 1px solid var(--border); border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; background: var(--surface2); }
+  .tab.active { color: var(--text); border-color: var(--accent); background: var(--bg); }
+  .panel { display: none; padding: 12px 16px 16px; height: calc(100vh - 100px); overflow: hidden; flex-direction: column; gap: 12px; }
   .panel.active { display: flex; }
-  .toolbar { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
-  .toolbar label { color: var(--dim); font-size: 11px; }
-  select, input[type=text] { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 12px; }
-  button { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  .log-box { flex: 1; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+  .toolbar label { color: var(--dim); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  select, input[type=text] { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: var(--radius-sm); font-family: inherit; font-size: 12px; }
+  select:focus, input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18); }
+  button { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: var(--radius-sm); cursor: pointer; font-size: 12px; font-weight: 600; }
+  button:hover { border-color: var(--dim); color: var(--text); }
+  .log-box { flex: 1; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; }
   .log-line { padding: 1px 0; white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
   .log-line .ts { color: var(--dim); }
   .log-line .lv { font-weight: bold; min-width: 8ch; display: inline-block; }
@@ -261,20 +263,20 @@ _DEBUG_HTML = """<!DOCTYPE html>
   .sensor-split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; overflow: hidden; }
   .sensor-raw { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; align-content: start; }
   .sensor-grid { display: flex; flex-direction: column; gap: 12px; }
-  .sensor-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  .sensor-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
   .sensor-card h3 { color: var(--accent); font-size: 12px; margin-bottom: 8px; }
   .sensor-type { margin-bottom: 6px; }
   .sensor-type .stype { color: var(--info); font-size: 11px; }
   .sensor-type .age { color: var(--dim); font-size: 11px; margin-left: 8px; }
   .sensor-data { color: var(--dim); font-size: 11px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
-  .sensor-text { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow-y: auto; white-space: pre; font-size: 12px; line-height: 1.6; color: var(--text); }
+  .sensor-text { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-y: auto; white-space: pre; font-size: 12px; line-height: 1.6; color: var(--text); }
   .sensor-text .sh { color: var(--accent); font-weight: bold; }
   .sensor-text .sf { color: var(--dim); }
   .sensor-text .sv { color: var(--text); }
   .prompt-layout { flex: 1; display: grid; grid-template-columns: 220px 1fr; gap: 12px; overflow: hidden; }
-  .user-list { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow-y: auto; }
+  .user-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow-y: auto; }
   .user-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--border); font-size: 12px; }
-  .user-item:hover, .user-item.active { background: var(--border); color: var(--accent); }
+  .user-item:hover, .user-item.active { background: var(--surface2); color: var(--accent); }
   .user-item .uid { color: var(--dim); font-size: 10px; display: block; margin-top: 2px; }
   .prompt-detail { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
   .prompt-meta { font-size: 11px; color: var(--dim); flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
@@ -284,9 +286,9 @@ _DEBUG_HTML = """<!DOCTYPE html>
   .prompt-sections { flex: 1; display: grid; grid-template-rows: 1fr 2fr 1fr; gap: 8px; overflow: hidden; }
   .prompt-section { display: flex; flex-direction: column; overflow: hidden; }
   .prompt-section h4 { font-size: 11px; color: var(--dim); margin-bottom: 4px; flex-shrink: 0; }
-  .prompt-pre { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 8px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px; color: var(--text); }
+  .prompt-pre { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px; color: var(--text); }
   .blocks-view { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-  .blk { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 11px; }
+  .blk { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; font-size: 11px; }
   .blk-hdr { color: var(--accent); font-weight: bold; font-size: 12px; margin-bottom: 10px; }
   .blk-hdr .blk-tag { font-size: 10px; font-weight: normal; color: var(--dim); margin-left: 8px; }
   .blk-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
@@ -306,10 +308,10 @@ _DEBUG_HTML = """<!DOCTYPE html>
   details.blk-expand summary::-webkit-details-marker { display: none; }
   details.blk-expand summary::before { content: '▶'; font-size: 9px; color: var(--dim); transition: transform 0.15s; min-width: 10px; }
   details.blk-expand[open] summary::before { transform: rotate(90deg); }
-  details.blk-expand .blk-expand-body { margin: 6px 0 4px 18px; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; white-space: pre-wrap; word-break: break-all; font-size: 11px; color: var(--text); line-height: 1.6; max-height: 300px; overflow-y: auto; }
+  details.blk-expand .blk-expand-body { margin: 6px 0 4px 18px; padding: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); white-space: pre-wrap; word-break: break-all; font-size: 11px; color: var(--text); line-height: 1.6; max-height: 300px; overflow-y: auto; }
   .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-right: 4px; }
   .badge.sl { background: #1e3a5f; color: #60a5fa; }
-  .badge.discord { background: #1e2a5f; color: #818cf8; }
+  .badge.discord { background: #312e81; color: #c4b5fd; }
   .empty { color: var(--dim); font-size: 12px; padding: 24px; text-align: center; }
 </style>
 </head>

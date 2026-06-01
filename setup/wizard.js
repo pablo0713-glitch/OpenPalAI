@@ -341,11 +341,6 @@ function buildStep1() {
       You are <strong id="name-live">${esc(state.agent_name) || 'your agent'}</strong>.
     </div>
     <div class="form-group" style="margin-top:1.5rem">
-      <label for="f-command-center-name">Command Center Name</label>
-      <input type="text" id="f-command-center-name" class="form-input" value="${esc(state.command_center_name)}" placeholder="Command Center" maxlength="80">
-      <p class="form-hint">Used as the persistent browser identity for command center chats and memory.</p>
-    </div>
-    <div class="form-group" style="margin-top:1.5rem">
       <label for="f-profile-image">Profile Image <span class="label-opt">(optional)</span></label>
       <input type="file" id="f-profile-image" class="hidden" accept="image/*">
       <div class="profile-image-picker">
@@ -366,6 +361,11 @@ function buildStep1() {
           <span class="profile-image-meta">This image will appear in the command center rail, runtime card, and agent chat replies.</span>
         </div>
       </div>
+    </div>
+    <div class="form-group" style="margin-top:1.5rem">
+      <label for="f-command-center-name">Command Center Name</label>
+      <input type="text" id="f-command-center-name" class="form-input" value="${esc(state.command_center_name)}" placeholder="Command Center" maxlength="80">
+      <p class="form-hint">Used as the persistent browser identity for command center chats and memory.</p>
     </div>
     <div class="form-group" style="margin-top:1.5rem">
       <label for="f-owner-sl-name">Your Second Life Name <span class="label-opt">(optional)</span></label>

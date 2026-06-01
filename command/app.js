@@ -441,7 +441,9 @@ function appendMessage(role, text, files = []) {
 
   const title = document.createElement('p');
   title.className = 'message-role';
-  title.textContent = role === 'user' ? 'You' : agentIdentity.name;
+  title.textContent = role === 'user'
+    ? (agentIdentity.commandCenterName || 'Command Center')
+    : agentIdentity.name;
   header.appendChild(title);
   article.appendChild(header);
 

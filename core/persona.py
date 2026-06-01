@@ -51,6 +51,7 @@ _DEFAULT_IDENTITY: dict[str, str] = {
 
 _DEFAULT_CONFIG: dict = {
     "agent_name": "Aria",
+    "agent_profile_image": "",
     "additional_context": "",
     "tools": {
         "web_search": True,
@@ -284,6 +285,8 @@ def _get_platform_awareness(cfg: dict[str, Any], platform: str) -> str:
     raw = cfg.get("platform_awareness")
     if isinstance(raw, dict):
         typed = cast(dict[str, str], raw)
+        if platform == "command":
+            return typed.get("command") or typed.get("discord") or ""
         return typed.get(platform) or ""
     if isinstance(raw, str):
         return raw

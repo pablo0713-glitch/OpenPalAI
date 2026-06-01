@@ -4,6 +4,7 @@ const panels = Array.from(document.querySelectorAll('.panel'));
 const openStandalone = document.getElementById('open-standalone');
 const newSessionButton = document.getElementById('new-session');
 const sendButton = document.getElementById('send-button');
+const sendButtonEnabledInput = document.getElementById('send-button-enabled');
 const sendStatus = document.getElementById('send-status');
 const messageInput = document.getElementById('message-input');
 const displayNameInput = document.getElementById('display-name');
@@ -28,15 +29,31 @@ const libraryDeleteButton = document.getElementById('library-delete-button');
 const libraryBrowserStatus = document.getElementById('library-browser-status');
 const chatStream = document.getElementById('chat-stream');
 const agentName = document.getElementById('agent-name');
+const brandProfileImage = document.getElementById('brand-profile-image');
+const runtimeProfile = document.getElementById('runtime-profile');
+const runtimeProfileImage = document.getElementById('runtime-profile-image');
 const providerName = document.getElementById('provider-name');
 const modelName = document.getElementById('model-name');
 const uploadNote = document.getElementById('upload-note');
 
 const sessionKey = 'trixxie-command-session';
+const userKey = 'trixxie-command-user';
+const preferencesKey = 'trixxie-command-preferences';
 let conversationId = localStorage.getItem(sessionKey) || createSessionId();
+let commandUserId = localStorage.getItem(userKey) || createBrowserUserId();
 let libraryModules = [];
 let selectedLibraryId = '';
+let commandPreferences = loadPreferences();
+let agentIdentity = {
+  name: 'Agent',
+  profileImage: '',
+};
 localStorage.setItem(sessionKey, conversationId);
+localStorage.setItem(userKey, commandUserId);
+
+displayNameInput.value = commandPreferences.displayName;
+sendButtonEnabledInput.checked = commandPreferences.sendButtonEnabled;
+applySendButtonPreference();
 
 for (const link of navLinks) {
   link.addEventListener('click', () => setPanel(link.dataset.panel || 'chat-panel'));
@@ -45,13 +62,21 @@ for (const link of navLinks) {
 newSessionButton.addEventListener('click', () => {
   conversationId = createSessionId();
   localStorage.setItem(sessionKey, conversationId);
-  chatStream.innerHTML = '';
-  appendMessage('agent', 'Started a fresh chat session.');
+  void loadConversationHistory();
   sendStatus.textContent = 'New session ready';
 });
 
 fileInput.addEventListener('change', renderAttachmentList);
 libraryFileInput.addEventListener('change', renderLibraryAttachmentList);
+displayNameInput.addEventListener('input', () => {
+  commandPreferences.displayName = displayNameInput.value;
+  persistPreferences();
+});
+sendButtonEnabledInput.addEventListener('change', () => {
+  commandPreferences.sendButtonEnabled = sendButtonEnabledInput.checked;
+  persistPreferences();
+  applySendButtonPreference();
+});
 libraryRefreshButton.addEventListener('click', () => {
   void loadLibraryModules();
 });
@@ -60,9 +85,12 @@ libraryDetailAlwaysOn.addEventListener('change', () => {
 });
 
 messageInput.addEventListener('keydown', (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+  if (event.isComposing) {
+    return;
+  }
+  if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
-    sendMessage();
+    void sendMessage();
   }
 });
 
@@ -71,23 +99,58 @@ libraryUploadButton.addEventListener('click', uploadLibraryFiles);
 librarySaveButton.addEventListener('click', saveSelectedLibraryModule);
 libraryDeleteButton.addEventListener('click', deleteSelectedLibraryModule);
 
-void loadStatus();
-void loadLibraryModules();
-renderAttachmentList();
-renderLibraryAttachmentList();
-setPanel('chat-panel');
+void initializeCommandCenter();
+
+async function initializeCommandCenter() {
+  await loadStatus();
+  await loadConversationHistory();
+  void loadLibraryModules();
+  renderAttachmentList();
+  renderLibraryAttachmentList();
+  setPanel('chat-panel');
+}
 
 async function loadStatus() {
   try {
     const response = await fetch('/command/status');
     const data = await response.json();
-    agentName.textContent = data.agent_name || 'Agent';
+    agentIdentity = {
+      name: data.agent_name || 'Agent',
+      profileImage: data.agent_profile_image || '',
+    };
+    agentName.textContent = agentIdentity.name;
+    renderRuntimeProfile();
     providerName.textContent = data.model_provider || '—';
     modelName.textContent = data.model_name || '—';
     const maxMb = Math.round((data.uploads?.max_upload_bytes || 0) / (1024 * 1024));
     uploadNote.textContent = `Uploads: images, text-like docs, PDF, and DOCX, up to ${maxMb || 5} MB each`;
   } catch {
     uploadNote.textContent = 'Status unavailable';
+  }
+}
+
+async function loadConversationHistory() {
+  chatStream.innerHTML = '';
+  try {
+    const params = new URLSearchParams({
+      conversation_id: conversationId,
+      command_user_id: commandUserId,
+    });
+    const response = await fetch(`/command/history?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || 'Failed to load conversation history');
+    }
+    const messages = Array.isArray(data.messages) ? data.messages : [];
+    if (!messages.length) {
+      appendMessage('agent', 'Command Center is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.');
+      return;
+    }
+    for (const message of messages) {
+      appendMessage(message.role === 'user' ? 'user' : 'agent', message.text || '');
+    }
+  } catch {
+    appendMessage('agent', 'Command Center is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.');
   }
 }
 
@@ -129,11 +192,14 @@ async function sendMessage() {
   }
 
   const displayName = displayNameInput.value.trim() || 'Command Center';
+  commandPreferences.displayName = displayName;
+  persistPreferences();
   appendMessage('user', text || buildAttachmentPrompt(files), files);
 
   const formData = new FormData();
   formData.append('message', text);
   formData.append('conversation_id', conversationId);
+  formData.append('command_user_id', commandUserId);
   formData.append('display_name', displayName);
   for (const file of files) {
     formData.append('files', file);
@@ -142,7 +208,7 @@ async function sendMessage() {
   messageInput.value = '';
   fileInput.value = '';
   renderAttachmentList();
-  sendButton.disabled = true;
+  setSendBusy(true);
   sendStatus.textContent = 'Sending…';
 
   try {
@@ -160,7 +226,7 @@ async function sendMessage() {
     appendMessage('agent', `Request failed: ${error.message}`);
     sendStatus.textContent = 'Request failed';
   } finally {
-    sendButton.disabled = false;
+    setSendBusy(false);
     chatStream.scrollTop = chatStream.scrollHeight;
   }
 }
@@ -366,10 +432,22 @@ function appendMessage(role, text, files = []) {
   const article = document.createElement('article');
   article.className = `message ${role}`;
 
+  const header = document.createElement('div');
+  header.className = 'message-header';
+
+  if (role === 'agent' && agentIdentity.profileImage) {
+    const avatar = document.createElement('img');
+    avatar.className = 'message-avatar';
+    avatar.src = agentIdentity.profileImage;
+    avatar.alt = `${agentIdentity.name} profile image`;
+    header.appendChild(avatar);
+  }
+
   const title = document.createElement('p');
   title.className = 'message-role';
-  title.textContent = role === 'user' ? 'You' : 'Agent';
-  article.appendChild(title);
+  title.textContent = role === 'user' ? 'You' : agentIdentity.name;
+  header.appendChild(title);
+  article.appendChild(header);
 
   const body = document.createElement('div');
   body.className = 'message-body';
@@ -416,4 +494,57 @@ function renderFileList(input, target) {
 
 function createSessionId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function loadPreferences() {
+  try {
+    const raw = localStorage.getItem(preferencesKey);
+    if (!raw) {
+      return {
+        displayName: 'Command Center',
+        sendButtonEnabled: true,
+      };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      displayName: typeof parsed.displayName === 'string' && parsed.displayName ? parsed.displayName : 'Command Center',
+      sendButtonEnabled: parsed.sendButtonEnabled !== false,
+    };
+  } catch {
+    return {
+      displayName: 'Command Center',
+      sendButtonEnabled: true,
+    };
+  }
+}
+
+function persistPreferences() {
+  localStorage.setItem(preferencesKey, JSON.stringify(commandPreferences));
+}
+
+function applySendButtonPreference() {
+  sendButton.disabled = !sendButtonEnabledInput.checked;
+}
+
+function setSendBusy(isBusy) {
+  sendButton.disabled = isBusy || !sendButtonEnabledInput.checked;
+  messageInput.disabled = isBusy;
+  fileInput.disabled = isBusy;
+}
+
+function renderRuntimeProfile() {
+  const hasProfileImage = Boolean(agentIdentity.profileImage);
+  runtimeProfile.classList.toggle('hidden', !hasProfileImage);
+  brandProfileImage.classList.toggle('hidden', !hasProfileImage);
+  if (hasProfileImage) {
+    runtimeProfileImage.src = agentIdentity.profileImage;
+    brandProfileImage.src = agentIdentity.profileImage;
+  } else {
+    runtimeProfileImage.removeAttribute('src');
+    brandProfileImage.removeAttribute('src');
+  }
+}
+
+function createBrowserUserId() {
+  return Math.random().toString(36).slice(2, 12);
 }

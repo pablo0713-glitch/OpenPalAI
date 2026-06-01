@@ -85,6 +85,7 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         return JSONResponse(
             {
                 "agent_name": cfg.get("agent_name", "Agent"),
+                "agent_profile_image": cfg.get("agent_profile_image", ""),
                 "model_provider": settings.model_provider,
                 "model_name": model_name,
                 "uploads": {
@@ -101,11 +102,13 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
     async def command_chat(
         message: str = Form(""),
         conversation_id: str = Form("default"),
+        command_user_id: str = Form(""),
         display_name: str = Form("Command Center"),
         files: list[UploadFile] | None = File(default=None),
     ) -> JSONResponse:
         cleaned_message = message.strip()
-        cleaned_conversation_id = _clean_fragment(conversation_id, fallback="default")
+        cleaned_conversation_id = _command_channel_id(conversation_id)
+        cleaned_command_user_id = _command_user_id(command_user_id)
         cleaned_display_name = display_name.strip() or "Command Center"
         uploads = files or []
 
@@ -118,9 +121,9 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
         context = MessageContext(
-            platform="discord",
-            user_id=f"command_{cleaned_conversation_id}",
-            channel_id=f"command_{cleaned_conversation_id}",
+            platform="command",
+            user_id=cleaned_command_user_id,
+            channel_id=cleaned_conversation_id,
             display_name=cleaned_display_name,
         )
         response = await agent.handle_message(content, context)
@@ -133,6 +136,23 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
                 "attachments": attachments,
                 "rate_limited": response.was_rate_limited,
                 "refused": response.was_refused,
+            }
+        )
+
+    @router.get("/command/history")
+    async def command_history(
+        conversation_id: str,
+        command_user_id: str,
+    ) -> JSONResponse:
+        cleaned_conversation_id = _command_channel_id(conversation_id)
+        cleaned_command_user_id = _command_user_id(command_user_id)
+        history = await agent.get_conversation_history(cleaned_command_user_id, cleaned_conversation_id)
+        return JSONResponse(
+            {
+                "ok": True,
+                "conversation_id": cleaned_conversation_id,
+                "command_user_id": cleaned_command_user_id,
+                "messages": history,
             }
         )
 
@@ -559,3 +579,13 @@ def _slugify(value: str) -> str:
 def _clean_fragment(value: str, *, fallback: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip()).strip("-")
     return cleaned[:64] or fallback
+
+
+def _command_user_id(value: str) -> str:
+    cleaned = _clean_fragment(value, fallback="browser")
+    return f"command_user_{cleaned}"
+
+
+def _command_channel_id(value: str) -> str:
+    cleaned = _clean_fragment(value, fallback="default")
+    return f"command_chat_{cleaned}"

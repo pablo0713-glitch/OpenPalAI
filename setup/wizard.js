@@ -95,6 +95,7 @@ const STEP_NAMES = ['Agent', 'Model', 'Platforms', 'Identity', 'Tools', 'Context
 
 const state = {
   agent_name: D.agent_name,
+  agent_profile_image: '',
   owner_sl_name: '',
   owner_discord_name: '',
   pa_discord:  D.platform_awareness.discord,
@@ -236,6 +237,7 @@ function applyConfig(config) {
   if (env.OWNER_SL_NAME)      state.owner_sl_name      = env.OWNER_SL_NAME;
   if (env.OWNER_DISCORD_NAME) state.owner_discord_name = env.OWNER_DISCORD_NAME;
   if (ag.agent_name) state.agent_name = ag.agent_name;
+  if (typeof ag.agent_profile_image === 'string') state.agent_profile_image = ag.agent_profile_image;
   const id = (ag.identity && typeof ag.identity === 'object') ? ag.identity : {};
   if (id.agent_md) state.agent_md = id.agent_md;
   if (id.soul_md)  state.soul_md  = id.soul_md;
@@ -335,6 +337,18 @@ function buildStep1() {
       You are <strong id="name-live">${esc(state.agent_name) || 'your agent'}</strong>.
     </div>
     <div class="form-group" style="margin-top:1.5rem">
+      <label for="f-profile-image">Profile Image <span class="label-opt">(optional)</span></label>
+      <input type="file" id="f-profile-image" class="form-input" accept="image/*">
+      <p class="form-hint">Used in the command center runtime card and next to the agent name in chat replies. Stored with the wizard config.</p>
+      <div class="name-preview hidden" id="profile-image-preview-wrap" style="margin-top:0.75rem;font-style:normal">
+        <strong style="display:block;margin-bottom:0.6rem">Preview</strong>
+        <div style="display:flex;align-items:center;gap:0.85rem">
+          <img id="profile-image-preview" alt="Agent profile preview" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:1px solid var(--border)">
+          <button type="button" class="btn btn-ghost" id="clear-profile-image">Remove image</button>
+        </div>
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:1.5rem">
       <label for="f-owner-sl-name">Your Second Life Name <span class="label-opt">(optional)</span></label>
       <input type="text" id="f-owner-sl-name" class="form-input" value="${esc(state.owner_sl_name)}" placeholder="e.g. YourAvatar Resident" maxlength="80">
       <p class="form-hint">Your SL avatar name. Used in memory notes and in-world context.</p>
@@ -350,12 +364,71 @@ function bindStep1() {
   const inp  = document.getElementById('f-name');
   const live = document.getElementById('name-live');
   if (inp) inp.addEventListener('input', () => { live.textContent = inp.value || 'your agent'; });
+
+  const fileInput = document.getElementById('f-profile-image');
+  const clearButton = document.getElementById('clear-profile-image');
+
+  renderProfileImagePreview();
+
+  if (fileInput) {
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        alert('Choose an image file.');
+        fileInput.value = '';
+        return;
+      }
+      if (file.size > 512 * 1024) {
+        alert('Profile image must be 512 KB or smaller.');
+        fileInput.value = '';
+        return;
+      }
+      state.agent_profile_image = await readFileAsDataUrl(file);
+      fileInput.value = '';
+      renderProfileImagePreview();
+    });
+  }
+
+  if (clearButton) {
+    clearButton.addEventListener('click', () => {
+      state.agent_profile_image = '';
+      if (fileInput) fileInput.value = '';
+      renderProfileImagePreview();
+    });
+  }
 }
 
 function collectStep1() {
   state.agent_name         = val('f-name') || state.agent_name;
   state.owner_sl_name      = val('f-owner-sl-name');
   state.owner_discord_name = val('f-owner-discord-name');
+}
+
+function renderProfileImagePreview() {
+  const wrap = document.getElementById('profile-image-preview-wrap');
+  const img = document.getElementById('profile-image-preview');
+  if (!wrap || !img) {
+    return;
+  }
+  const hasImage = Boolean(state.agent_profile_image);
+  wrap.classList.toggle('hidden', !hasImage);
+  if (hasImage) {
+    img.src = state.agent_profile_image;
+  } else {
+    img.removeAttribute('src');
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Failed to read image file.'));
+    reader.readAsDataURL(file);
+  });
 }
 
 // ============================================================
@@ -1131,6 +1204,7 @@ async function save() {
     },
     agent_config: {
       agent_name: state.agent_name,
+      agent_profile_image: state.agent_profile_image,
       identity: {
         agent_md: state.agent_md,
         soul_md:  state.soul_md,

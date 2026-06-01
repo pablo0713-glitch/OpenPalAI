@@ -167,7 +167,7 @@ class AgentCore:
         memory_files = ""
         stm_bridge = ""
         if self._person_map:
-            person_id = self._person_map.get_person_id(context.user_id) or ""
+            person_id = self._person_map.get_person_id(context.user_id) or context.user_id
             context.person_id = person_id
             if person_id:
                 memory_files = await self._load_memory_files(person_id)
@@ -309,6 +309,22 @@ class AgentCore:
 
     def all_tracked_users(self) -> list[str]:
         return list(self._last_prompt.keys())
+
+    async def get_conversation_history(self, user_id: str, channel_id: str) -> list[dict[str, str]]:
+        history = await self._memory.get_history(user_id, channel_id)
+        rendered: list[dict[str, str]] = []
+        for turn in history:
+            role = _get_role(turn)
+            if role not in {"user", "assistant"}:
+                continue
+            text = _content_text(_get_content(turn) or "")
+            if not text:
+                continue
+            rendered.append({
+                "role": "agent" if role == "assistant" else "user",
+                "text": text,
+            })
+        return rendered
 
     async def _load_memory_files(self, person_id: str) -> str:
         """Load MEMORY.md + USER.md for person_id, formatted Hermes-style with § delimiters."""

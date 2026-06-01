@@ -17,6 +17,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -49,6 +53,16 @@ a {
   gap: 14px;
   align-items: center;
   margin-bottom: 28px;
+}
+
+.brand-profile-image {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+  flex-shrink: 0;
 }
 
 .brand-mark {
@@ -163,6 +177,20 @@ h2 {
   margin-top: 14px;
   color: var(--muted);
   line-height: 1.5;
+}
+
+.runtime-profile {
+  padding: 8px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.runtime-profile-image {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
 }
 
 .workspace {
@@ -304,7 +332,20 @@ textarea {
 .composer-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
+}
+
+.send-toggle {
+  grid-template-columns: auto 1fr;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.send-toggle span {
+  color: var(--muted);
 }
 
 .primary-button {
@@ -471,6 +512,23 @@ textarea {
   white-space: pre-wrap;
 }
 
+.message-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.message-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
 .message.user {
   background: rgba(139, 92, 246, 0.12);
 }
@@ -480,11 +538,15 @@ textarea {
 }
 
 .message-role {
-  margin-bottom: 8px;
+  margin-bottom: 0;
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
+}
+
+.message-body {
+  white-space: pre-wrap;
 }
 
 .frame-panel {

@@ -10,6 +10,7 @@
   <div class="shell">
     <aside class="rail">
       <div class="brand">
+        <img class="brand-profile-image hidden" id="brand-profile-image" alt="Agent profile image">
         <span class="brand-mark">✦</span>
         <div>
           <p class="eyebrow">Trixxie</p>
@@ -26,7 +27,10 @@
 
       <section class="status-card">
         <p class="eyebrow">Runtime</p>
-        <div class="status-row"><span>Agent</span><strong id="agent-name">Loading…</strong></div>
+        <div class="status-row"><span>Name</span><strong id="agent-name">Loading…</strong></div>
+        <div class="runtime-profile hidden" id="runtime-profile">
+          <img class="runtime-profile-image" id="runtime-profile-image" alt="Agent profile image">
+        </div>
         <div class="status-row"><span>Provider</span><strong id="provider-name">—</strong></div>
         <div class="status-row"><span>Model</span><strong id="model-name">—</strong></div>
         <p class="status-note" id="upload-note">Uploads: images and text-like docs</p>
@@ -67,6 +71,10 @@
             </label>
 
             <div class="composer-actions">
+              <label class="checkbox-row compact-checkbox send-toggle">
+                <input id="send-button-enabled" type="checkbox" checked>
+                <span>Enable send button</span>
+              </label>
               <button class="primary-button" id="send-button">Send</button>
               <span class="inline-status" id="send-status">Ready</span>
             </div>
@@ -112,12 +120,7 @@
           </section>
 
           <section class="chat-card">
-            <div class="chat-stream" id="chat-stream">
-              <article class="message agent">
-                <p class="message-role">Agent</p>
-                <div class="message-body">Command Center is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.</div>
-              </article>
-            </div>
+            <div class="chat-stream" id="chat-stream"></div>
           </section>
         </div>
       </section>

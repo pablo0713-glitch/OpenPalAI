@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,13 @@ class _ScriptUpdateBody(BaseModel):
     secret: str
     triggers: list[str]
     opensim: bool = False
+
+
+def _asset_version(path: Path) -> int:
+    try:
+        return int(path.stat().st_mtime)
+    except OSError:
+        return 0
 
 
 def _normalize_creds(text: str) -> str:
@@ -152,8 +159,13 @@ def create_setup_router() -> APIRouter:
     router = APIRouter()
 
     @router.get("/setup")
-    async def setup_index() -> FileResponse:
-        return FileResponse(str(_SETUP_DIR / "index.html"))
+    async def setup_index() -> HTMLResponse:
+        html = (_SETUP_DIR / "index.html").read_text(encoding="utf-8")
+        css_version = _asset_version(_SETUP_DIR / "style.css")
+        js_version = _asset_version(_SETUP_DIR / "wizard.js")
+        html = html.replace("/setup/static/style.css", f"/setup/static/style.css?v={css_version}")
+        html = html.replace("/setup/static/wizard.js", f"/setup/static/wizard.js?v={js_version}")
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @router.get("/setup/status")
     async def setup_status() -> JSONResponse:

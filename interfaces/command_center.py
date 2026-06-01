@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from config.settings import Settings
@@ -62,6 +62,13 @@ _SUPPORTED_DOCUMENT_MEDIA_TYPES = {
 }
 
 
+def _asset_version(path: Path) -> int:
+    try:
+        return int(path.stat().st_mtime)
+    except OSError:
+        return 0
+
+
 def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRouter:
     router = APIRouter()
 
@@ -73,8 +80,13 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         return RedirectResponse(url="/command", status_code=307)
 
     @router.get("/command")
-    async def command_index() -> FileResponse:
-        return FileResponse(str(_COMMAND_DIR / "index.html"))
+    async def command_index() -> HTMLResponse:
+        html = (_COMMAND_DIR / "index.html").read_text(encoding="utf-8")
+        css_version = _asset_version(_COMMAND_DIR / "style.css")
+        js_version = _asset_version(_COMMAND_DIR / "app.js")
+        html = html.replace("/command/static/style.css", f"/command/static/style.css?v={css_version}")
+        html = html.replace("/command/static/app.js", f"/command/static/app.js?v={js_version}")
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @router.get("/command/status")
     async def command_status() -> JSONResponse:

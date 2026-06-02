@@ -39,6 +39,44 @@ MEMORY_CAP = 2000
 USER_CAP   = 1200
 
 
+def _friendly_error(exc: Exception) -> str:
+    """Map a model/API exception to a user-facing message.
+
+    Keeps the cause legible (out of credits, bad key, rate limit, unreachable)
+    instead of the generic fallback. Provider-agnostic — matches on the message
+    text and HTTP status across the Anthropic and OpenAI-compatible SDKs.
+    """
+    text = str(exc).lower()
+    status = getattr(exc, "status_code", None)
+
+    def has(*subs: str) -> bool:
+        return any(s in text for s in subs)
+
+    if status == 402 or has(
+        "credit balance is too low", "out of credits", "insufficient_quota",
+        "insufficient funds", "billing", "quota", "payment required",
+    ):
+        return ("I can't respond right now — the API account is out of credits. "
+                "My owner needs to top up billing before I can reply.")
+
+    if status in (401, 403) or has(
+        "invalid x-api-key", "invalid api key", "incorrect api key",
+        "authentication", "unauthorized", "no auth credentials",
+    ):
+        return ("I can't respond — there's a problem with the API key or permissions. "
+                "My owner needs to check the configuration.")
+
+    if status in (429, 529) or has("rate limit", "rate_limit", "overloaded", "too many requests"):
+        return "I'm getting rate-limited by the model right now. Give me a moment and try again."
+
+    if has("connection error", "connecterror", "failed to connect", "all connection attempts failed",
+           "timed out", "timeout", "unreachable", "name or service not known"):
+        return ("I can't reach the model service right now — it may be down or unreachable. "
+                "Try again in a bit.")
+
+    return "Something went sideways on my end. Give me a moment and try again."
+
+
 def _get_role(turn: dict) -> str:
     return turn.get("role") if isinstance(turn, dict) else getattr(turn, "role", "")
 
@@ -282,9 +320,7 @@ class AgentCore:
             }
         except Exception as exc:
             logger.exception("Error in tool loop: %s", exc)
-            return AgentResponse(
-                text="Something went sideways on my end. Give me a moment and try again.",
-            )
+            return AgentResponse(text=_friendly_error(exc))
 
         if not reply_text:
             logger.warning("Empty reply_text for user %s — returning fallback", context.user_id)

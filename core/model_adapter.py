@@ -322,19 +322,29 @@ _LOCAL_PROVIDER_DEFAULTS: dict[str, str] = {
 
 # ------------------------------------------------------------------ factory
 
-def create_adapter(settings: Any) -> ModelAdapter:
-    provider = settings.model_provider
+def make_adapter(
+    settings: Any,
+    provider: str | None = None,
+    model_name: str | None = None,
+) -> ModelAdapter:
+    """Build a ModelAdapter for the given provider/model, falling back to the
+    global settings (and shared credentials) when either is unspecified.
+
+    Used both for the default adapter (`create_adapter`) and for per-companion
+    `model_override` selection.
+    """
+    provider = (provider or settings.model_provider or "anthropic").lower()
 
     if provider in _OPENAI_COMPAT_URLS:
         return OpenAICompatibleAdapter(
             base_url=_OPENAI_COMPAT_URLS[provider],
-            model=settings.openai_model,
+            model=model_name or settings.openai_model,
             api_key=settings.openai_api_key or "no-key",
         )
 
     if provider in _LOCAL_PROVIDER_DEFAULTS:
         base_url = settings.openai_base_url or _LOCAL_PROVIDER_DEFAULTS[provider]
-        model = settings.ollama_model if provider == "ollama" else settings.openai_model
+        model = model_name or (settings.ollama_model if provider == "ollama" else settings.openai_model)
         return OpenAICompatibleAdapter(
             base_url=base_url,
             model=model,
@@ -344,4 +354,9 @@ def create_adapter(settings: Any) -> ModelAdapter:
     # Default: Anthropic
     import anthropic
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    return AnthropicAdapter(client=client, model=settings.claude_model)
+    return AnthropicAdapter(client=client, model=model_name or settings.claude_model)
+
+
+def create_adapter(settings: Any) -> ModelAdapter:
+    """The default adapter built from global settings (.env)."""
+    return make_adapter(settings)

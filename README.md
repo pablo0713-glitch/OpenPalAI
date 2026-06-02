@@ -181,6 +181,8 @@ Set your agent's **name** (shown in all responses) and your own name (used in me
 
 ### Step 2 — Model
 
+**Per companion.** Each companion picks its own provider and model (the companion bar at the top of this step switches who you're editing) — e.g. one companion on Claude Opus, another on Haiku, another on a local Ollama model. **API keys and base URLs are shared** across all companions, so you enter a provider's key once. The default companion's model is also written to `.env` as the fallback used by background/supporting agents.
+
 Choose your AI backend:
 
 | Option | When to use |

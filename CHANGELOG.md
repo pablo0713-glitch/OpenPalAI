@@ -4,6 +4,14 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ---
 
+## 2026-06-02
+
+### Fixed
+
+- **Per-companion model selection** — the model is now saved **per companion** instead of being a single global value that the last-configured agent overwrote (which forced every companion onto the same model). Each companion stores its own `model_override` (`{model_provider, model_name}`); wizard **Step 2** is now a per-companion step (the companion bar appears on it), while API keys and base URLs remain shared across companions. At runtime `AgentCore._adapter_for(agent_id)` resolves and caches a `ModelAdapter` from each companion's `model_override`, falling back to the global `.env` adapter when a companion has none. The `.env` model fields now mirror the **default** companion (the fallback used by supporting agents). New `make_adapter(settings, provider, model_name)` factory in `core/model_adapter.py` (used by `create_adapter`, `make_supporting_adapter`, and per-companion resolution).
+
+---
+
 ## 2026-06-01
 
 ### Added

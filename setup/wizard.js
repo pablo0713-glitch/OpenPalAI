@@ -102,7 +102,7 @@ const MASK = '••••••••';
 const TOTAL = 8;
 const STEP_NAMES = ['Agent', 'Model', 'Platforms', 'Identity', 'Tools', 'Context', 'Agents', 'Save'];
 // Steps that edit the selected companion (the companion bar is shown on these).
-const COMPANION_STEPS = new Set([1, 4, 5, 6]);
+const COMPANION_STEPS = new Set([1, 2, 4, 5, 6]);
 
 // ============================================================
 // Companion helpers
@@ -135,7 +135,8 @@ function blankCompanion(id, name) {
     pa_sl:      D.platform_awareness.sl,
     pa_opensim: D.platform_awareness.opensim,
     platform_bindings: null,
-    model_override: null,
+    model_provider: 'anthropic',
+    model_name: 'claude-sonnet-4-6',
   };
 }
 
@@ -317,7 +318,13 @@ function applyConfig(config) {
       if (t.sl_action  !== undefined) c.sl_action_enabled  = t.sl_action;
       if (t.voice      !== undefined) c.voice_enabled      = t.voice;
       if (raw.platform_bindings) c.platform_bindings = raw.platform_bindings;
-      if (raw.model_override !== undefined) c.model_override = raw.model_override;
+      const seedProvider = state.model_provider || 'anthropic';
+      const seedModel = seedProvider === 'anthropic' ? state.claude_model
+        : seedProvider === 'ollama' ? state.ollama_model
+        : state.openai_model;
+      const mo = (raw.model_override && typeof raw.model_override === 'object') ? raw.model_override : {};
+      c.model_provider = mo.model_provider || seedProvider;
+      c.model_name = mo.model_name || seedModel || defaultModelFor(c.model_provider);
       state.companions[cid] = c;
     }
     state.default_agent_id = normalizeId(ag.default_agent_id || Object.keys(state.companions)[0]);
@@ -671,15 +678,23 @@ const PROVIDER_HINTS = {
 
 function providerCard(id) {
   const m = PROVIDER_META[id];
-  const active = state.model_provider === id;
+  const active = ac().model_provider === id;
   return `<button class="tab ${active ? 'active' : ''}" style="flex:0 0 auto;min-width:10rem;text-align:left;padding:0.6rem 0.9rem;height:auto" onclick="setProvider('${id}')">
     <div style="font-weight:600;font-size:0.9rem">${m.label}</div>
     <div style="font-size:0.75rem;opacity:0.65;margin-top:0.15rem;white-space:normal">${m.desc}</div>
   </button>`;
 }
 
+// Sensible default model name for a provider (used when switching providers).
+function defaultModelFor(p) {
+  if (p === 'anthropic') return 'claude-sonnet-4-6';
+  if (p === 'ollama')    return state.ollama_model || 'llama3.2';
+  if (p === 'lm_studio') return state.openai_model || '';
+  return (PROVIDER_HINTS[p] && PROVIDER_HINTS[p].modelPh) || state.openai_model || '';
+}
+
 function buildStep2() {
-  const p = state.model_provider;
+  const p = ac().model_provider;
   const cloudProviders = ['anthropic', 'openai', 'gemini', 'grok', 'openrouter'];
   const localProviders = ['ollama', 'lm_studio'];
 
@@ -687,60 +702,62 @@ function buildStep2() {
 
   let providerFields = '';
   if (p === 'anthropic') {
+    const current = ac().model_name || 'claude-sonnet-4-6';
+    const options = claudeModels.includes(current) ? claudeModels : [current, ...claudeModels];
     providerFields = `
       <div class="form-group">
-        <label for="f-api-key">Anthropic API Key</label>
+        <label for="f-api-key">Anthropic API Key <span class="label-opt">(shared by all companions)</span></label>
         <input type="password" id="f-api-key" class="form-input" value="${esc(state.anthropic_api_key)}" placeholder="sk-ant-...">
         <p class="form-hint">Get your key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a></p>
       </div>
       <div class="form-group">
-        <label for="f-claude-model">Model</label>
+        <label for="f-claude-model">Model <span class="label-opt">(this companion)</span></label>
         <select id="f-claude-model" class="form-input form-select">
-          ${claudeModels.map(m => `<option value="${m}" ${state.claude_model === m ? 'selected' : ''}>${m}</option>`).join('')}
+          ${options.map(m => `<option value="${m}" ${current === m ? 'selected' : ''}>${m}</option>`).join('')}
         </select>
       </div>`;
   } else if (PROVIDER_HINTS[p]) {
     const h = PROVIDER_HINTS[p];
     providerFields = `
       <div class="form-group">
-        <label for="f-oai-key">${h.keyLabel}</label>
+        <label for="f-oai-key">${h.keyLabel} <span class="label-opt">(shared by all companions)</span></label>
         <input type="password" id="f-oai-key" class="form-input" value="${esc(state.openai_api_key)}" placeholder="${h.keyPh}">
         <p class="form-hint">Get your key at <code>${h.keyHint}</code></p>
       </div>
       <div class="form-group">
-        <label for="f-oai-model">Model</label>
-        <input type="text" id="f-oai-model" class="form-input" value="${esc(state.openai_model || h.modelPh)}" placeholder="${h.modelPh}">
+        <label for="f-oai-model">Model <span class="label-opt">(this companion)</span></label>
+        <input type="text" id="f-oai-model" class="form-input" value="${esc(ac().model_name)}" placeholder="${h.modelPh}">
         <p class="form-hint">${h.modelHint}</p>
       </div>`;
   } else if (p === 'ollama') {
     providerFields = `
       <div class="callout callout-info">Ollama must be running before starting the agent. Tool use support varies by model.</div>
       <div class="form-group" style="margin-top:1rem">
-        <label for="f-ollama-url">Base URL</label>
+        <label for="f-ollama-url">Base URL <span class="label-opt">(shared by all companions)</span></label>
         <input type="text" id="f-ollama-url" class="form-input" value="${esc(state.ollama_base_url)}" placeholder="http://localhost:11434/v1">
       </div>
       <div class="form-group">
-        <label for="f-ollama-model">Model Name</label>
-        <input type="text" id="f-ollama-model" class="form-input" value="${esc(state.ollama_model)}" placeholder="llama3.2">
+        <label for="f-ollama-model">Model Name <span class="label-opt">(this companion)</span></label>
+        <input type="text" id="f-ollama-model" class="form-input" value="${esc(ac().model_name)}" placeholder="llama3.2">
         <p class="form-hint">Any model pulled with <code>ollama pull &lt;model&gt;</code></p>
       </div>`;
   } else if (p === 'lm_studio') {
     providerFields = `
       <div class="callout callout-info">LM Studio must be running with the local server enabled. No API key required.</div>
       <div class="form-group" style="margin-top:1rem">
-        <label for="f-lms-url">Base URL</label>
+        <label for="f-lms-url">Base URL <span class="label-opt">(shared by all companions)</span></label>
         <input type="text" id="f-lms-url" class="form-input" value="${esc(state.openai_base_url || 'http://localhost:1234/v1')}" placeholder="http://localhost:1234/v1">
       </div>
       <div class="form-group">
-        <label for="f-oai-model">Model Name</label>
-        <input type="text" id="f-oai-model" class="form-input" value="${esc(state.openai_model)}" placeholder="loaded model name from LM Studio">
+        <label for="f-oai-model">Model Name <span class="label-opt">(this companion)</span></label>
+        <input type="text" id="f-oai-model" class="form-input" value="${esc(ac().model_name)}" placeholder="loaded model name from LM Studio">
         <p class="form-hint">Copy the model identifier shown in LM Studio's local server tab.</p>
       </div>`;
   }
 
   return `
     <h2 class="step-heading">AI Model</h2>
-    <p class="step-desc">Choose the model that powers your agent.</p>
+    <p class="step-desc">Choose the model that powers <strong>${esc(ac().agent_name) || 'this companion'}</strong>. Each companion can use a different provider and model; API keys and base URLs are shared across all companions.</p>
 
     <div class="section-title" style="margin-bottom:0.6rem">Cloud Providers</div>
     <div class="provider-tabs" style="flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem">
@@ -764,19 +781,20 @@ function buildStep2() {
 }
 
 function collectStep2() {
-  const p = state.model_provider;
+  const p = ac().model_provider;
+  // Model name is per-companion; API keys / base URLs are shared globals.
   if (p === 'anthropic') {
     state.anthropic_api_key = val('f-api-key')      || state.anthropic_api_key;
-    state.claude_model      = val('f-claude-model')  || state.claude_model;
+    ac().model_name         = val('f-claude-model') || ac().model_name;
   } else if (PROVIDER_HINTS[p]) {
     state.openai_api_key = val('f-oai-key')   || state.openai_api_key;
-    state.openai_model   = val('f-oai-model') || state.openai_model;
+    ac().model_name      = val('f-oai-model') || ac().model_name;
   } else if (p === 'ollama') {
     state.ollama_base_url = val('f-ollama-url')   || state.ollama_base_url;
-    state.ollama_model    = val('f-ollama-model')  || state.ollama_model;
+    ac().model_name       = val('f-ollama-model') || ac().model_name;
   } else if (p === 'lm_studio') {
     state.openai_base_url = val('f-lms-url')   || state.openai_base_url;
-    state.openai_model    = val('f-oai-model') || state.openai_model;
+    ac().model_name       = val('f-oai-model') || ac().model_name;
   }
   const mt = parseInt(val('f-max-tokens'), 10);
   if (mt > 0) state.max_tokens = mt;
@@ -784,7 +802,10 @@ function collectStep2() {
 
 function setProvider(p) {
   collectStep2();
-  state.model_provider = p;
+  if (ac().model_provider !== p) {
+    ac().model_provider = p;
+    ac().model_name = defaultModelFor(p);  // previous name belonged to the old provider
+  }
   renderStep(currentStep);
 }
 
@@ -1247,12 +1268,13 @@ function collectStep7() {
 
 function buildStep8() {
   const modelLabel = (() => {
-    const p = state.model_provider;
-    if (p === 'anthropic')  return state.claude_model;
-    if (p === 'ollama')     return `Ollama — ${state.ollama_model}`;
-    if (p === 'lm_studio')  return `LM Studio — ${state.openai_model}`;
-    const names = { openai: 'OpenAI', openrouter: 'OpenRouter', gemini: 'Gemini', grok: 'Grok' };
-    return `${names[p] || p} — ${state.openai_model}`;
+    const dc = defaultCompanion();
+    const p = dc.model_provider;
+    const m = dc.model_name;
+    const names = { openai: 'OpenAI', openrouter: 'OpenRouter', gemini: 'Gemini', grok: 'Grok', ollama: 'Ollama', lm_studio: 'LM Studio' };
+    const label = p === 'anthropic' ? m : `${names[p] || p} — ${m}`;
+    const others = Object.keys(state.companions).length - 1;
+    return others > 0 ? `${label} <span class="text-dim" style="font-size:0.85em">(default; per-companion)</span>` : label;
   })();
 
   const platforms = [];
@@ -1414,6 +1436,14 @@ function renderStep(n) {
 // ============================================================
 
 async function save() {
+  // The .env model fields mirror the default companion (the fallback used by
+  // supporting agents and any companion without its own override).
+  const def = defaultCompanion();
+  state.model_provider = def.model_provider;
+  if (def.model_provider === 'anthropic')      state.claude_model = def.model_name;
+  else if (def.model_provider === 'ollama')    state.ollama_model = def.model_name;
+  else                                         state.openai_model = def.model_name;
+
   const payload = {
     env: {
       MODEL_PROVIDER:              state.model_provider,
@@ -1461,7 +1491,10 @@ async function save() {
             sl:      c.pa_sl,
             opensim: c.pa_opensim,
           },
-          model_override: c.model_override ?? null,
+          model_override: {
+            model_provider: c.model_provider,
+            model_name:     c.model_name,
+          },
           identity: {
             agent_md: c.agent_md,
             soul_md:  c.soul_md,

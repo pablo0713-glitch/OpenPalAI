@@ -618,7 +618,7 @@ Supporting agents are **not** full `AgentCore` instances. They cannot call tools
       "tools": { "web_search": true, "notes": true, "sl_action": true, "voice": false },
       "platform_awareness": { "command": "...incl. group chat rules...", "discord": "...", "sl": "...", "opensim": "..." },
       "platform_bindings": { "command": {"enabled": true, "selectable": true}, "discord": {"default": true}, "sl": {"embodied": true} },
-      "model_override": null
+      "model_override": { "model_provider": "anthropic", "model_name": "claude-opus-4-6" }
     }
   },
   "supporting_agents": { ... }
@@ -630,6 +630,8 @@ Every request carries an `agent_id` on `MessageContext`. All memory paths, the s
 Key API in `core/persona.py`: `get_default_agent_id()`, `get_companion_agent(agent_id)`, `list_companion_agents(platform, selectable_only=)`, `resolve_platform_agent_id(platform, requested)`, `get_agent_identity_dir(agent_id)`. **Never** read persona/tool config from the global config inside a request handler — resolve the companion via `MessageContext.agent_id`.
 
 Per-companion identity files live in `data/agents/{id}/identity/` (legacy `data/identity/` is the default agent's fallback). Per-companion memory lives under `data/memory/agents/{id}/{user}/`.
+
+**Per-companion model:** each companion's `model_override` (`{model_provider, model_name}`) selects its model. At runtime `AgentCore._adapter_for(agent_id)` builds and caches a `ModelAdapter` from it (via `make_adapter()`), falling back to the global `.env` adapter when a companion has no override. API keys/base URLs are shared (global `.env`); only the provider + model name are per companion. The `.env` model fields mirror the default companion and back the supporting agents.
 
 ### Platform resolution
 

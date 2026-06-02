@@ -4,13 +4,7 @@ import asyncio
 import logging
 from typing import Any
 
-from core.model_adapter import (
-    ModelAdapter,
-    AnthropicAdapter,
-    OpenAICompatibleAdapter,
-    _OPENAI_COMPAT_URLS,
-    _LOCAL_PROVIDER_DEFAULTS,
-)
+from core.model_adapter import ModelAdapter, make_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -56,24 +50,8 @@ def make_supporting_adapter(
     or its fields are empty.
     """
     supporting_cfg: dict = agent_cfg.get("supporting_agents", {}).get(agent_name, {})
-    provider = (supporting_cfg.get("model_provider") or settings.model_provider).lower()
-    model_name = supporting_cfg.get("model_name") or ""
-
-    if provider in _OPENAI_COMPAT_URLS:
-        model = model_name or settings.openai_model
-        return OpenAICompatibleAdapter(
-            base_url=_OPENAI_COMPAT_URLS[provider],
-            model=model,
-            api_key=settings.openai_api_key or "no-key",
-        )
-
-    if provider in _LOCAL_PROVIDER_DEFAULTS:
-        base_url = settings.openai_base_url or _LOCAL_PROVIDER_DEFAULTS[provider]
-        model = model_name or (settings.ollama_model if provider == "ollama" else settings.openai_model)
-        return OpenAICompatibleAdapter(base_url=base_url, model=model, api_key="no-key")
-
-    # Default: Anthropic
-    import anthropic
-    model = model_name or settings.claude_model
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    return AnthropicAdapter(client=client, model=model)
+    return make_adapter(
+        settings,
+        supporting_cfg.get("model_provider"),
+        supporting_cfg.get("model_name"),
+    )

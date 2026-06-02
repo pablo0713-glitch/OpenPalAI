@@ -14,7 +14,7 @@ import aiofiles
 
 from config.settings import Settings
 from core.librarian_agent import LibrarianAgent
-from core.model_adapter import ModelAdapter
+from core.model_adapter import ModelAdapter, make_adapter
 from core.persona import (
     MessageContext,
     build_system_prompt_blocks,
@@ -151,6 +151,33 @@ class AgentCore:
         self._library_store = library_store
         self._last_prompt: dict[str, str] = {}
         self._last_exchange: dict[str, dict] = {}
+        # Per-companion adapters keyed by (provider, model_name); built lazily
+        # from each companion's model_override. Empty override → global adapter.
+        self._adapter_cache: dict[tuple[str, str], ModelAdapter] = {}
+
+    def _adapter_for(self, agent_id: str) -> ModelAdapter:
+        """Resolve the model adapter for a companion, honoring its model_override.
+
+        Falls back to the global adapter (.env) when the companion has no override.
+        """
+        if not agent_id:
+            return self._adapter
+        try:
+            override = get_companion_agent(agent_id).get("model_override")
+        except Exception:
+            override = None
+        if not isinstance(override, dict):
+            return self._adapter
+        provider = str(override.get("model_provider") or "").strip().lower()
+        model_name = str(override.get("model_name") or "").strip()
+        if not provider and not model_name:
+            return self._adapter
+        key = (provider or str(self._settings.model_provider).lower(), model_name)
+        adapter = self._adapter_cache.get(key)
+        if adapter is None:
+            adapter = make_adapter(self._settings, provider or None, model_name or None)
+            self._adapter_cache[key] = adapter
+        return adapter
 
     async def handle_message(
         self,
@@ -237,9 +264,10 @@ class AgentCore:
         messages = _sanitize_history(list(history)) + [{"role": "user", "content": message_content}]
 
         sl_action_queue: list[dict] = []
+        adapter = self._adapter_for(context.agent_id)
         try:
             reply_text, assistant_turns = await self._run_tool_loop(
-                messages, system_blocks, context, sl_action_queue
+                messages, system_blocks, context, sl_action_queue, adapter
             )
             self._last_exchange[context.user_id] = {
                 "ts": time.time(),
@@ -467,6 +495,7 @@ class AgentCore:
         system_blocks: list[dict],
         context: MessageContext,
         action_queue: list[dict],
+        adapter: ModelAdapter,
     ) -> tuple[str, list[dict]]:
         tool_definitions = self._tools.get_definitions(context)
         accumulated_turns: list[dict] = []
@@ -475,7 +504,7 @@ class AgentCore:
         for round_num in range(MAX_TOOL_ROUNDS + 1):
             tool_choice: dict = {"type": "none"} if round_num == MAX_TOOL_ROUNDS else {"type": "auto"}
 
-            response = await self._adapter.create(
+            response = await adapter.create(
                 system=system_blocks,
                 messages=messages,
                 tools=tool_definitions,

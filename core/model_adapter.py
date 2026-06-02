@@ -360,3 +360,22 @@ def make_adapter(
 def create_adapter(settings: Any) -> ModelAdapter:
     """The default adapter built from global settings (.env)."""
     return make_adapter(settings)
+
+
+def resolve_model(
+    settings: Any,
+    provider: str | None = None,
+    model_name: str | None = None,
+) -> tuple[str, str]:
+    """Effective (provider, model_name) after the same fallbacks `make_adapter` applies.
+
+    Used for display/reporting so the UI shows the model that will actually run.
+    """
+    provider = (provider or settings.model_provider or "anthropic").lower()
+    if model_name:
+        return provider, model_name
+    if provider in _OPENAI_COMPAT_URLS:
+        return provider, settings.openai_model
+    if provider in _LOCAL_PROVIDER_DEFAULTS:
+        return provider, (settings.ollama_model if provider == "ollama" else settings.openai_model)
+    return provider, settings.claude_model

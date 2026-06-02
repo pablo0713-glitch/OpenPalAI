@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from config.settings import Settings
 from core.agent import AgentCore
+from core.model_adapter import resolve_model
 from core.persona import (
     MessageContext,
     _normalize_agent_id,
@@ -103,8 +104,10 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         cfg = get_agent_config()
         active_agent_id = resolve_platform_agent_id("command", agent_id, require_selectable=True, cfg=cfg)
         agent_cfg = get_companion_agent(active_agent_id, cfg)
-        model_name = settings.claude_model if settings.model_provider == "anthropic" else (
-            settings.ollama_model if settings.model_provider == "ollama" else settings.openai_model
+        override = agent_cfg.get("model_override")
+        override = override if isinstance(override, dict) else {}
+        model_provider, model_name = resolve_model(
+            settings, override.get("model_provider"), override.get("model_name")
         )
         return JSONResponse(
             {
@@ -114,7 +117,7 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
                 "command_center_name": cfg.get("command_center_name", "Command Center"),
                 "agent_profile_image": agent_cfg.get("agent_profile_image", ""),
                 "agents": list_companion_agents("command", selectable_only=True, cfg=cfg),
-                "model_provider": settings.model_provider,
+                "model_provider": model_provider,
                 "model_name": model_name,
                 "uploads": {
                     "images": True,

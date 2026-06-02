@@ -397,6 +397,9 @@ function companionBarHtml() {
         <input type="checkbox" id="companion-default" ${isActiveDefault ? 'checked disabled' : ''}>
         Default for command center
       </label>
+      <p style="flex-basis:100%;width:100%;margin:0.5rem 0 0;font-size:0.78rem;opacity:0.7;line-height:1.45">
+        ⚠️ Additional companions are only active in the <strong>Command Center</strong> (including group chat). Second Life and Discord currently use the <strong>default companion</strong> only — extra companions are not yet functional on those platforms.
+      </p>
     </div>`;
 }
 

@@ -23,6 +23,8 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 | **Importance scoring** | Background agent scores every turn 0–1; only high-value content graduates to long-term memory |
 | **Library modules** | Drop-in reference documents (lore guides, setting rules, style notes) injected into context on demand or always-on |
 | **Supporting agents** | Specialist background agents (Memory Curator, Librarian, Semantic Recall) each with configurable provider and model |
+| **Multiple companions** | Create several distinct companion personas, each with its own identity, tools, and separate memory — switchable in the command center (Second Life and Discord use the default companion only) |
+| **Group chat** | Multiple companions converse in one command-center thread with Discord-style @mention routing — naming a companion pulls it into the conversation |
 | **Command Center** | Unified web UI for chat, setup, debug, and library management at `/command` |
 | **Document uploads** | Browser chat accepts images, text-like files, PDF, and DOCX; library ingest turns documents into modules in `data/library` |
 
@@ -121,6 +123,18 @@ The Chat panel supports:
 
 `/setup` and `/debug` still work directly, but `/command` is the intended browser control surface.
 
+### Multiple companions & group chat
+
+If you've defined more than one companion in the setup wizard, the command center sidebar shows an **Active Companion** selector. Each companion keeps its own separate memory, facts, and history — switching companions switches the whole conversation context.
+
+Flip on **Group chat** and pick which companions take part. Everyone shares one thread:
+
+- Address a companion by **@mention** or by name to talk to it directly; an un-addressed message goes to everyone.
+- Companions follow Discord-style rules — they reply with an `@mention`, and naming another companion pulls *that* one into the conversation, so the thread can develop on its own.
+- Each companion's group turns still feed its own long-term memory.
+
+> **Platform scope:** Multiple companions and group chat are **command-center features**. In Second Life and Discord the agent always resolves to the **default companion** — extra companions are not yet active on those platforms.
+
 ---
 
 ## Keeping Up to Date
@@ -159,6 +173,10 @@ Your `.env`, `data/`, and configured scripts are not touched by a pull. The LSL 
 Set your agent's **name** (shown in all responses) and your own name (used in memory notes and context).
 
 > **Tip:** Pick a name that fits the persona you have in mind. You can change it any time through the wizard.
+
+**Managing multiple companions:** On the per-companion steps (Agent, Identity, Tools, Context) a companion bar lets you **add, switch, rename, and delete** companions, and mark which one is the command-center default. Each companion gets its own identity files, tools, and separate memory.
+
+> **Platform scope:** Extra companions are only active in the **Command Center** (including group chat). Second Life and Discord currently use the **default companion** only — per-platform companion binding is planned but not yet functional.
 
 ### Step 2 — Model
 

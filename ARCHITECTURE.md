@@ -596,6 +596,79 @@ Supporting agents are **not** full `AgentCore` instances. They cannot call tools
 
 ---
 
+## Companion Registry & Group Chat
+
+> Distinct from the **supporting agents** above. "Supporting agents" are background specialists with no persona. **Companions** are full `AgentCore` personas — multiple selectable characters. Full migration detail lives in `MULTI_AGENT_MIGRATION.md`.
+
+### Companion registry
+
+`data/agent_config.json` is a registry keyed by `agent_id`:
+
+```json
+{
+  "default_agent_id": "aria",
+  "command_center_name": "Command Center",
+  "agents": {
+    "aria": {
+      "id": "aria",
+      "agent_name": "Aria",
+      "agent_profile_image": "",
+      "additional_context": "",
+      "tools": { "web_search": true, "notes": true, "sl_action": true, "voice": false },
+      "platform_awareness": { "command": "...", "discord": "...", "sl": "...", "opensim": "..." },
+      "platform_bindings": { "command": {"enabled": true, "selectable": true}, "discord": {"default": true}, "sl": {"embodied": true} },
+      "model_override": null
+    }
+  },
+  "supporting_agents": { ... }
+}
+```
+
+Every request carries an `agent_id` on `MessageContext`. All memory paths, the session index, the vector store, STM, consolidation, tool config, and identity dirs are scoped by it. Legacy single-agent configs are auto-migrated on load (`_legacy_to_registry()`), with read fallback so existing installs keep their data.
+
+Key API in `core/persona.py`: `get_default_agent_id()`, `get_companion_agent(agent_id)`, `list_companion_agents(platform, selectable_only=)`, `resolve_platform_agent_id(platform, requested)`, `get_agent_identity_dir(agent_id)`. **Never** read persona/tool config from the global config inside a request handler — resolve the companion via `MessageContext.agent_id`.
+
+Per-companion identity files live in `data/agents/{id}/identity/` (legacy `data/identity/` is the default agent's fallback). Per-companion memory lives under `data/memory/agents/{id}/{user}/`.
+
+### Platform resolution
+
+`resolve_platform_agent_id(platform, requested)` decides which companion handles a request: it honors an explicitly requested (and selectable) companion, else the configured default, else the first enabled one.
+
+- **Command center** — passes the UI-selected `agent_id`; companions are switchable per request.
+- **Discord / Second Life** — pass no request, so they always resolve to the **default** companion. Per-platform companion binding (`platform_bindings`) is modeled but **not yet wired** — extra companions are command-center-only today.
+
+### Group chat (command center)
+
+Multiple companions converse in one thread with Discord-style `@mention` routing. Orchestrated server-side in `interfaces/command_center.py`.
+
+- **Rules block** — `_build_group_chat_block()` in `core/persona.py` injects a `## Group Chat Mode` section into every participant's system prompt (triggered by `MessageContext.group_participants`). Incoming messages are labeled `@Name: ...`; replies must begin with an `@mention`; every message must name its addressee; naming a participant signals it to respond.
+
+- **Orchestration** — `_orchestrate_group_chat()`:
+  1. Appends the user message to a shared transcript (`data/memory/groups/{user}__{channel}.json`).
+  2. Picks initial responders: agents named in the message, or **all** selected companions if none are named.
+  3. Runs each responder through the normal `AgentCore.handle_message(..., skip_rate_limit=True)` — feeding it only the **labeled transcript delta it hasn't seen** (tracked via per-agent `cursors`). Because it's the normal pipeline, group turns persist into each companion's own agent-scoped history and feed STM/consolidation.
+  4. Scans each reply for `@mentions`/names and enqueues those companions (the cascade).
+  5. Bounds runaway with `_GROUP_MAX_TURNS=8` total and `_GROUP_MAX_PER_AGENT=2` per user message.
+
+- **Endpoints** — `POST /command/group-chat` (returns ordered `replies`), `GET /command/group-history` (union transcript view). The group channel is namespaced `command_group_{conversation}`, separate from the 1:1 `command_chat_{conversation}` channel.
+
+```
+user message
+     │  append to shared transcript
+     ▼
+initial responders (named, else all)
+     │
+     ▼  for each: handle_message(labeled delta, skip_rate_limit=True)
+companion reply ──► persist to that companion's agent-scoped history
+     │  scan reply for @mentions
+     ▼
+enqueue mentioned companions  ──►  (cascade, capped)
+```
+
+The shared transcript file is **only** the UI union view + delta cursors; per-agent history remains the source of truth for generation.
+
+---
+
 ## Memory
 
 ### Conversation Files

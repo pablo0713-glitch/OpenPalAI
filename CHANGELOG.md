@@ -8,6 +8,14 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 ### Added
 
+- **Multi-Companion Registry** (`core/persona.py`) — `agent_config.json` is now a companion registry (`agents: { id: {...} }`) with a `default_agent_id`. Every request carries an `agent_id` through `MessageContext`, and all memory paths, session-index queries, tool config, consolidation runs, and identity dirs are scoped per companion. Legacy single-agent installs are auto-migrated on load (`_legacy_to_registry()`) with read fallback so existing data is never lost. New public API: `get_default_agent_id()`, `get_companion_agent()`, `list_companion_agents()`, `resolve_platform_agent_id()`, `get_agent_identity_dir()`. See `MULTI_AGENT_MIGRATION.md`.
+
+- **Command-center companion switching** — `/command/status`, `/command/chat`, and `/command/history` accept an `agent_id`; the command center UI has an **Active Companion** selector with separate per-companion memory.
+
+- **Wizard multi-companion CRUD** (`setup/wizard.js`, `interfaces/setup_server.py`) — A companion selector bar on the per-companion wizard steps lets you create, edit, rename, and delete companions. `POST /setup/companion` and `DELETE /setup/companion/{id}` manage the registry and per-agent identity dirs (`data/agents/{id}/identity/`). The wizard saves the normalized `agents` registry. A notice clarifies that extra companions are Command-Center-only today (see Notes).
+
+- **Command-center group chat** (`interfaces/command_center.py`, `command/`) — Multiple companions converse in one thread with Discord-style `@mention` routing. A `## Group Chat Mode` rule block is injected into every participant's system prompt: reply directly with an `@mention`, every message must name its addressee, and naming a companion signals it to respond (driving a cascade). `_orchestrate_group_chat()` runs each responder through the normal `handle_message` pipeline (so group turns persist into each companion's own agent-scoped history and feed memory/consolidation), feeding each one only the labeled transcript delta it hasn't seen (per-agent cursors). An un-addressed message is answered by every selected companion; cascade and cost are bounded by `_GROUP_MAX_TURNS=8` / `_GROUP_MAX_PER_AGENT=2`. Endpoints: `POST /command/group-chat`, `GET /command/group-history`. The shared transcript lives in `data/memory/groups/`. UI adds a **Group chat** toggle, a participant picker, and per-companion avatar bubbles.
+
 - **Command Center** (`interfaces/command_center.py`, `command/`) — New unified web control surface at `/command`. Combines browser chat, a native library browser, the existing setup wizard, and the existing debug page into one entry point. `/` now redirects to `/command`.
 
 - **Browser chat uploads** — The command-center chat panel accepts images, text-like documents, PDF, and DOCX uploads and routes them through the normal `AgentCore` message path rather than a separate simplified handler.
@@ -22,6 +30,8 @@ All notable changes to Trixxie Companion Agent are documented here.
 
 - **Primary web entry point** — `/command` is now the intended browser surface. `/setup` and `/debug` remain available directly, but are embedded inside the command center.
 
+- **`AgentCore.handle_message(..., *, skip_rate_limit=False)`** — the group-chat orchestrator bypasses the per-user rate limiter during a cascade (turn caps bound cost instead). The single-agent path is unchanged.
+
 - **Dependencies** — Added `pypdf` and `python-docx` to support PDF and DOCX parsing.
 
 ### Fixed
@@ -29,6 +39,12 @@ All notable changes to Trixxie Companion Agent are documented here.
 - **Generated library-module front-matter** — Command-center ingest now writes array fields in a format the existing `LibraryStore` parser can read reliably.
 
 - **Command-center backend import path** — Added the missing `json` import used when writing generated library modules.
+
+- **Setup-server form endpoints returning 422** — `_LibraryWriteBody`, `_AgentsCfgBody`, and the new `_CompanionCreateBody` were defined inside the router function. Under `from __future__ import annotations`, FastAPI cannot resolve Pydantic body models in local scope, so `POST /setup/library` and `POST /setup/agents` (library editor + Step-7 supporting-agents save) were silently failing. Hoisted to module scope.
+
+### Notes
+
+- **Extra companions are Command-Center-only for now** — additional companions (beyond the default) are fully functional in the command center, including group chat. Second Life and Discord still resolve to the **default companion** only; per-platform companion binding is Phase 4 (`platform_bindings` is already modeled in `agent_config.json`). The setup wizard surfaces this limitation inline.
 
 ## 2026-05-25
 

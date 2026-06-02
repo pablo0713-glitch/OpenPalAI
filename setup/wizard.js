@@ -88,20 +88,63 @@ const D = {
 const MASK = '••••••••';
 const TOTAL = 8;
 const STEP_NAMES = ['Agent', 'Model', 'Platforms', 'Identity', 'Tools', 'Context', 'Agents', 'Save'];
+// Steps that edit the selected companion (the companion bar is shown on these).
+const COMPANION_STEPS = new Set([1, 4, 5, 6]);
+
+// ============================================================
+// Companion helpers
+// ============================================================
+
+function normalizeId(value) {
+  let raw = String(value == null ? '' : value).trim().toLowerCase();
+  let out = '';
+  for (const ch of raw) out += /[a-z0-9]/.test(ch) ? ch : '-';
+  out = out.replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  return out || 'aria';
+}
+
+function blankCompanion(id, name) {
+  return {
+    id,
+    agent_name: name || D.agent_name,
+    agent_profile_image: '',
+    agent_md: D.agent_md,
+    soul_md:  D.soul_md,
+    user_md:  D.user_md,
+    web_search_enabled: true,
+    notes_enabled:      true,
+    sl_action_enabled:  true,
+    voice_enabled:      false,
+    additional_context: '',
+    pa_discord: D.platform_awareness.discord,
+    pa_sl:      D.platform_awareness.sl,
+    pa_opensim: D.platform_awareness.opensim,
+    platform_bindings: null,
+    model_override: null,
+  };
+}
+
+// Active companion (the one the per-companion steps edit).
+function ac() {
+  return state.companions[state.activeCompanionId] || Object.values(state.companions)[0];
+}
+
+// The companion bound as command-center / platform default.
+function defaultCompanion() {
+  return state.companions[state.default_agent_id] || ac();
+}
 
 // ============================================================
 // State
 // ============================================================
 
 const state = {
-  agent_name: D.agent_name,
   command_center_name: 'Command Center',
-  agent_profile_image: '',
   owner_sl_name: '',
   owner_discord_name: '',
-  pa_discord:  D.platform_awareness.discord,
-  pa_sl:       D.platform_awareness.sl,
-  pa_opensim:  D.platform_awareness.opensim,
+  companions: { aria: blankCompanion('aria', D.agent_name) },
+  activeCompanionId: 'aria',
+  default_agent_id: 'aria',
   model_provider: 'anthropic',
   // Anthropic
   anthropic_api_key: '',
@@ -124,16 +167,8 @@ const state = {
   sl_bridge_port: '8080',
   sl_trigger_names: ['', '', ''],
   opensim_enabled: false,
-  agent_md: D.agent_md,
-  soul_md: D.soul_md,
-  user_md: D.user_md,
-  web_search_enabled: true,
   search_provider: 'serper',
   search_api_key: '',
-  notes_enabled: true,
-  sl_action_enabled: true,
-  voice_enabled: false,
-  additional_context: '',
   supporting_agents: {
     memory_curator:  { model_provider: 'anthropic', model_name: 'claude-haiku-4-5-20251001' },
     librarian:       { model_provider: 'anthropic', model_name: 'claude-haiku-4-5-20251001' },
@@ -233,30 +268,45 @@ function applyConfig(config) {
   }
   if (env.OPENSIM_ENABLED === 'true') state.opensim_enabled = true;
   if (env.SEARCH_PROVIDER) state.search_provider = env.SEARCH_PROVIDER;
-  if (env.SEARCH_API_KEY) { state.search_api_key = env.SEARCH_API_KEY; state.web_search_enabled = true; }
+  if (env.SEARCH_API_KEY) state.search_api_key = env.SEARCH_API_KEY;
 
   if (env.OWNER_SL_NAME)      state.owner_sl_name      = env.OWNER_SL_NAME;
   if (env.OWNER_DISCORD_NAME) state.owner_discord_name = env.OWNER_DISCORD_NAME;
-  if (ag.agent_name) state.agent_name = ag.agent_name;
   if (typeof ag.command_center_name === 'string' && ag.command_center_name.trim()) {
     state.command_center_name = ag.command_center_name;
   }
-  if (typeof ag.agent_profile_image === 'string') state.agent_profile_image = ag.agent_profile_image;
-  const id = (ag.identity && typeof ag.identity === 'object') ? ag.identity : {};
-  if (id.agent_md) state.agent_md = id.agent_md;
-  if (id.soul_md)  state.soul_md  = id.soul_md;
-  if (id.user_md)  state.user_md  = id.user_md;
-  if (ag.additional_context !== undefined) state.additional_context = ag.additional_context;
-  const pa = (ag.platform_awareness && typeof ag.platform_awareness === 'object') ? ag.platform_awareness : {};
-  if (pa.discord)  state.pa_discord  = pa.discord;
-  if (pa.sl)       state.pa_sl       = pa.sl;
-  if (pa.opensim)  state.pa_opensim  = pa.opensim;
 
-  const t = ag.tools || {};
-  if (t.web_search !== undefined) state.web_search_enabled = t.web_search;
-  if (t.notes !== undefined) state.notes_enabled = t.notes;
-  if (t.sl_action !== undefined) state.sl_action_enabled = t.sl_action;
-  if (t.voice     !== undefined) state.voice_enabled     = t.voice;
+  // ---- Companions ----
+  const agents = (ag.agents && typeof ag.agents === 'object') ? ag.agents : null;
+  if (agents && Object.keys(agents).length) {
+    state.companions = {};
+    for (const [rawId, raw] of Object.entries(agents)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const cid = normalizeId(raw.id || rawId);
+      const c = blankCompanion(cid, raw.agent_name || raw.name || cid);
+      if (typeof raw.agent_profile_image === 'string') c.agent_profile_image = raw.agent_profile_image;
+      if (typeof raw.additional_context === 'string')   c.additional_context  = raw.additional_context;
+      const idf = (raw.identity && typeof raw.identity === 'object') ? raw.identity : {};
+      if (idf.agent_md) c.agent_md = idf.agent_md;
+      if (idf.soul_md)  c.soul_md  = idf.soul_md;
+      if (idf.user_md)  c.user_md  = idf.user_md;
+      const pa = (raw.platform_awareness && typeof raw.platform_awareness === 'object') ? raw.platform_awareness : {};
+      if (pa.discord)  c.pa_discord  = pa.discord;
+      if (pa.sl)       c.pa_sl       = pa.sl;
+      if (pa.opensim)  c.pa_opensim  = pa.opensim;
+      const t = raw.tools || {};
+      if (t.web_search !== undefined) c.web_search_enabled = t.web_search;
+      if (t.notes      !== undefined) c.notes_enabled      = t.notes;
+      if (t.sl_action  !== undefined) c.sl_action_enabled  = t.sl_action;
+      if (t.voice      !== undefined) c.voice_enabled      = t.voice;
+      if (raw.platform_bindings) c.platform_bindings = raw.platform_bindings;
+      if (raw.model_override !== undefined) c.model_override = raw.model_override;
+      state.companions[cid] = c;
+    }
+    state.default_agent_id = normalizeId(ag.default_agent_id || Object.keys(state.companions)[0]);
+    if (!state.companions[state.default_agent_id]) state.default_agent_id = Object.keys(state.companions)[0];
+    state.activeCompanionId = state.default_agent_id;
+  }
 
   if (ag.supporting_agents && typeof ag.supporting_agents === 'object') {
     for (const key of ['memory_curator', 'librarian', 'semantic_recall']) {
@@ -325,6 +375,108 @@ function jumpTo(n) {
 }
 
 // ============================================================
+// Companion management bar
+// ============================================================
+
+function companionBarHtml() {
+  const ids = Object.keys(state.companions);
+  const options = ids.map(id => {
+    const c = state.companions[id];
+    const label = (c.agent_name || id) + (id === state.default_agent_id ? ' ★' : '');
+    return `<option value="${esc(id)}" ${id === state.activeCompanionId ? 'selected' : ''}>${esc(label)}</option>`;
+  }).join('');
+  const isActiveDefault = state.activeCompanionId === state.default_agent_id;
+  const canDelete = ids.length > 1;
+  return `
+    <div id="companion-bar" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.65rem 0.9rem;background:rgba(127,127,127,0.06);border:1px solid var(--border);border-radius:10px;margin-bottom:1.5rem">
+      <span style="font-size:0.85rem;opacity:0.7;white-space:nowrap">Editing companion</span>
+      <select id="companion-select" class="form-input form-select" style="width:auto;min-width:11rem">${options}</select>
+      <button type="button" class="btn btn-ghost" id="companion-new" style="padding:0.4rem 0.8rem">+ New</button>
+      <button type="button" class="btn btn-ghost" id="companion-delete" style="padding:0.4rem 0.8rem" ${canDelete ? '' : 'disabled'}>🗑 Delete</button>
+      <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;margin-left:auto;cursor:${isActiveDefault ? 'default' : 'pointer'};white-space:nowrap">
+        <input type="checkbox" id="companion-default" ${isActiveDefault ? 'checked disabled' : ''}>
+        Default for command center
+      </label>
+    </div>`;
+}
+
+function bindCompanionBar() {
+  const select = document.getElementById('companion-select');
+  if (select) select.addEventListener('change', e => switchCompanion(e.target.value));
+  const newBtn = document.getElementById('companion-new');
+  if (newBtn) newBtn.addEventListener('click', newCompanion);
+  const delBtn = document.getElementById('companion-delete');
+  if (delBtn && !delBtn.disabled) delBtn.addEventListener('click', deleteCompanion);
+  const defBox = document.getElementById('companion-default');
+  if (defBox) defBox.addEventListener('change', () => { if (defBox.checked) setDefaultCompanion(); });
+}
+
+function refreshCompanionBar() {
+  const existing = document.getElementById('companion-bar');
+  if (!existing) return;
+  existing.outerHTML = companionBarHtml();
+  bindCompanionBar();
+}
+
+function switchCompanion(id) {
+  if (!state.companions[id] || id === state.activeCompanionId) return;
+  collectCurrent();
+  state.activeCompanionId = id;
+  render();
+  scrollTo(0, 0);
+}
+
+async function newCompanion() {
+  collectCurrent();
+  const name = (prompt('Name for the new companion?', 'New Companion') || '').trim();
+  if (!name) return;
+  try {
+    const res = await fetch('/setup/companion', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_name: name }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Create failed');
+    state.companions[data.id] = blankCompanion(data.id, data.agent_name || name);
+    state.activeCompanionId = data.id;
+    render();
+    scrollTo(0, 0);
+  } catch (e) {
+    alert('Could not create companion: ' + e.message);
+  }
+}
+
+async function deleteCompanion() {
+  const id = state.activeCompanionId;
+  const c = state.companions[id];
+  if (Object.keys(state.companions).length <= 1) return;
+  if (!confirm(`Delete "${c.agent_name || id}"?\n\nThis permanently removes its config, identity, memory, and notes. This cannot be undone.`)) return;
+  try {
+    const res = await fetch(`/setup/companion/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Delete failed');
+    delete state.companions[id];
+    if (data.default_agent_id && state.companions[data.default_agent_id]) {
+      state.default_agent_id = data.default_agent_id;
+    }
+    if (!state.companions[state.default_agent_id]) {
+      state.default_agent_id = Object.keys(state.companions)[0];
+    }
+    state.activeCompanionId = state.default_agent_id;
+    render();
+    scrollTo(0, 0);
+  } catch (e) {
+    alert('Could not delete companion: ' + e.message);
+  }
+}
+
+function setDefaultCompanion() {
+  state.default_agent_id = state.activeCompanionId;
+  refreshCompanionBar();
+}
+
+// ============================================================
 // Step 1 — Agent identity
 // ============================================================
 
@@ -334,11 +486,11 @@ function buildStep1() {
     <p class="step-desc">Give your AI companion a name, and tell it who you are.</p>
     <div class="form-group">
       <label for="f-name">Agent Name</label>
-      <input type="text" id="f-name" class="form-input" value="${esc(state.agent_name)}" placeholder="Aria" maxlength="60" autofocus>
+      <input type="text" id="f-name" class="form-input" value="${esc(ac().agent_name)}" placeholder="Aria" maxlength="60" autofocus>
       <p class="form-hint">Used in system prompts, memory notes, and the console.</p>
     </div>
     <div class="name-preview">
-      You are <strong id="name-live">${esc(state.agent_name) || 'your agent'}</strong>.
+      You are <strong id="name-live">${esc(ac().agent_name) || 'your agent'}</strong>.
     </div>
     <div class="form-group" style="margin-top:1.5rem">
       <label for="f-profile-image">Profile Image <span class="label-opt">(optional)</span></label>
@@ -382,7 +534,11 @@ function buildStep1() {
 function bindStep1() {
   const inp  = document.getElementById('f-name');
   const live = document.getElementById('name-live');
-  if (inp) inp.addEventListener('input', () => { live.textContent = inp.value || 'your agent'; });
+  if (inp) inp.addEventListener('input', () => {
+    live.textContent = inp.value || 'your agent';
+    ac().agent_name = inp.value;
+    refreshCompanionBar();
+  });
 
   const fileInput = document.getElementById('f-profile-image');
   const chooseButton = document.getElementById('choose-profile-image');
@@ -412,7 +568,7 @@ function bindStep1() {
         fileInput.value = '';
         return;
       }
-      state.agent_profile_image = await readFileAsDataUrl(file);
+      ac().agent_profile_image = await readFileAsDataUrl(file);
       fileInput.value = '';
       renderProfileImagePreview();
     });
@@ -420,7 +576,7 @@ function bindStep1() {
 
   if (clearButton) {
     clearButton.addEventListener('click', () => {
-      state.agent_profile_image = '';
+      ac().agent_profile_image = '';
       if (fileInput) fileInput.value = '';
       renderProfileImagePreview();
     });
@@ -428,7 +584,7 @@ function bindStep1() {
 }
 
 function collectStep1() {
-  state.agent_name         = val('f-name') || state.agent_name;
+  ac().agent_name          = val('f-name') || ac().agent_name;
   state.command_center_name = val('f-command-center-name') || 'Command Center';
   state.owner_sl_name      = val('f-owner-sl-name');
   state.owner_discord_name = val('f-owner-discord-name');
@@ -442,7 +598,7 @@ function renderProfileImagePreview() {
   if (!wrap || !img) {
     return;
   }
-  const hasImage = Boolean(state.agent_profile_image);
+  const hasImage = Boolean(ac().agent_profile_image);
   wrap.classList.toggle('hidden', !hasImage);
   if (meta) {
     meta.textContent = hasImage ? 'Image selected and ready to save' : 'No image selected';
@@ -451,7 +607,7 @@ function renderProfileImagePreview() {
     clearButton.classList.toggle('hidden', !hasImage);
   }
   if (hasImage) {
-    img.src = state.agent_profile_image;
+    img.src = ac().agent_profile_image;
   } else {
     img.removeAttribute('src');
   }
@@ -739,7 +895,7 @@ function collectStep3() {
   state.sl_bridge_secret           = val('f-sl-secret') || state.sl_bridge_secret;
   state.sl_bridge_port             = val('f-sl-port')   || state.sl_bridge_port;
   state.sl_trigger_names           = [
-    val('f-trigger-0') || state.agent_name,
+    val('f-trigger-0') || defaultCompanion().agent_name,
     val('f-trigger-1'),
     val('f-trigger-2'),
   ];
@@ -749,7 +905,7 @@ function collectStep3() {
 function updateScriptSnippet() {
   const url     = document.getElementById('f-sl-url')?.value    || 'YOUR_TUNNEL_URL';
   const secret  = document.getElementById('f-sl-secret')?.value || 'YOUR_BRIDGE_SECRET';
-  const t0      = document.getElementById('f-trigger-0')?.value || state.agent_name || 'AgentName';
+  const t0      = document.getElementById('f-trigger-0')?.value || defaultCompanion().agent_name || 'AgentName';
   const t1      = document.getElementById('f-trigger-1')?.value || '';
   const t2      = document.getElementById('f-trigger-2')?.value || '';
   const triggers = [t0, t1, t2].filter(Boolean).map(t => `"${t}"`).join(', ');
@@ -774,7 +930,7 @@ function copySnippet(id) {
 async function updateScripts(silent) {
   const url     = document.getElementById('f-sl-url')?.value    || state.sl_bridge_url    || '';
   const secret  = document.getElementById('f-sl-secret')?.value || state.sl_bridge_secret || '';
-  const t0      = document.getElementById('f-trigger-0')?.value || state.agent_name       || '';
+  const t0      = document.getElementById('f-trigger-0')?.value || defaultCompanion().agent_name || '';
   const t1      = document.getElementById('f-trigger-1')?.value || '';
   const t2      = document.getElementById('f-trigger-2')?.value || '';
   const opensim = document.getElementById('f-opensim-on')?.checked ?? state.opensim_enabled;
@@ -834,46 +990,47 @@ function buildStep4() {
     <p class="step-desc">Define who your agent is, how they feel, and who they're for. Each file is loaded into the system prompt on every message.</p>
     <div class="form-group">
       <label for="f-agent-md">Agent <span class="label-opt">(agent.md)</span></label>
-      <textarea id="f-agent-md" class="form-textarea" rows="10">${esc(state.agent_md)}</textarea>
+      <textarea id="f-agent-md" class="form-textarea" rows="10">${esc(ac().agent_md)}</textarea>
       <p class="form-hint">Role, purpose, behaviors, boundaries, and roleplay rules.</p>
     </div>
     <div class="form-group" style="margin-top:1.5rem">
       <label for="f-soul-md">Soul <span class="label-opt">(soul.md)</span></label>
-      <textarea id="f-soul-md" class="form-textarea" rows="6">${esc(state.soul_md)}</textarea>
+      <textarea id="f-soul-md" class="form-textarea" rows="6">${esc(ac().soul_md)}</textarea>
       <p class="form-hint">Tone, humor, quirks, and conversational style.</p>
     </div>
     <div class="form-group" style="margin-top:1.5rem">
       <label for="f-user-md">User Profile <span class="label-opt">(user.md)</span></label>
-      <textarea id="f-user-md" class="form-textarea" rows="5">${esc(state.user_md)}</textarea>
+      <textarea id="f-user-md" class="form-textarea" rows="5">${esc(ac().user_md)}</textarea>
       <p class="form-hint">Describes the agent's owner — you. Used to personalise every response.</p>
     </div>`;
 }
 
 function collectStep4() {
-  state.agent_md = val('f-agent-md');
-  state.soul_md  = val('f-soul-md');
-  state.user_md  = val('f-user-md');
+  ac().agent_md = val('f-agent-md');
+  ac().soul_md  = val('f-soul-md');
+  ac().user_md  = val('f-user-md');
 }
 
 function buildStep5() {
   const showSL = state.sl_enabled;
+  const c = ac();
   return `
     <h2 class="step-heading">Tools & Capabilities</h2>
-    <p class="step-desc">Choose which tools your agent can use. Tools are used when helpful; the agent does not announce them.</p>
+    <p class="step-desc">Choose which tools this companion can use. Tools are used when helpful; the agent does not announce them.</p>
 
-    <div class="tool-card ${state.web_search_enabled ? 'enabled' : ''}">
+    <div class="tool-card ${c.web_search_enabled ? 'enabled' : ''}">
       <div class="card-header">
         <div>
           <div class="card-title">Web Search</div>
           <div class="card-desc">Search the web for current info, news, shopping, and more</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" id="f-search-on" ${state.web_search_enabled ? 'checked' : ''}
+          <input type="checkbox" id="f-search-on" ${c.web_search_enabled ? 'checked' : ''}
             onchange="toggleCard(this, 'search-body')">
           <span class="slider"></span>
         </label>
       </div>
-      <div id="search-body" class="card-body" style="display:${state.web_search_enabled ? '' : 'none'}">
+      <div id="search-body" class="card-body" style="display:${c.web_search_enabled ? '' : 'none'}">
         <div class="form-group">
           <label for="f-search-provider">Provider</label>
           <select id="f-search-provider" class="form-input form-select">
@@ -889,14 +1046,14 @@ function buildStep5() {
       </div>
     </div>
 
-    <div class="tool-card ${state.notes_enabled ? 'enabled' : ''}">
+    <div class="tool-card ${c.notes_enabled ? 'enabled' : ''}">
       <div class="card-header">
         <div>
           <div class="card-title">Notes</div>
           <div class="card-desc">Save and recall persistent notes across conversations</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" id="f-notes-on" ${state.notes_enabled ? 'checked' : ''}
+          <input type="checkbox" id="f-notes-on" ${c.notes_enabled ? 'checked' : ''}
             onchange="this.closest('.tool-card').classList.toggle('enabled', this.checked)">
           <span class="slider"></span>
         </label>
@@ -904,28 +1061,28 @@ function buildStep5() {
     </div>
 
     ${showSL ? `
-    <div class="tool-card ${state.sl_action_enabled ? 'enabled' : ''}">
+    <div class="tool-card ${c.sl_action_enabled ? 'enabled' : ''}">
       <div class="card-header">
         <div>
           <div class="card-title">SL Actions</div>
           <div class="card-desc">Send emotes and IM actions in Second Life / OpenSim</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" id="f-slaction-on" ${state.sl_action_enabled ? 'checked' : ''}
+          <input type="checkbox" id="f-slaction-on" ${c.sl_action_enabled ? 'checked' : ''}
             onchange="this.closest('.tool-card').classList.toggle('enabled', this.checked)">
           <span class="slider"></span>
         </label>
       </div>
     </div>
 
-    <div class="tool-card ${state.voice_enabled ? 'enabled' : ''}">
+    <div class="tool-card ${c.voice_enabled ? 'enabled' : ''}">
       <div class="card-header">
         <div>
           <div class="card-title">Voice (SL)</div>
           <div class="card-desc">Enable the /sl/voice endpoint for audio input. Requires a voice-capable model. Also toggle <code>s_voice</code> in the HUD script to report who is in voice chat.</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" id="f-voice-on" ${state.voice_enabled ? 'checked' : ''}
+          <input type="checkbox" id="f-voice-on" ${c.voice_enabled ? 'checked' : ''}
             onchange="this.closest('.tool-card').classList.toggle('enabled', this.checked)">
           <span class="slider"></span>
         </label>
@@ -934,14 +1091,14 @@ function buildStep5() {
 }
 
 function collectStep5() {
-  state.web_search_enabled = chk('f-search-on');
-  state.search_provider    = val('f-search-provider') || state.search_provider;
-  state.search_api_key     = val('f-search-key') || state.search_api_key;
-  state.notes_enabled      = chk('f-notes-on');
-  const slEl               = document.getElementById('f-slaction-on');
-  if (slEl) state.sl_action_enabled = slEl.checked;
-  const voiceEl            = document.getElementById('f-voice-on');
-  if (voiceEl) state.voice_enabled  = voiceEl.checked;
+  ac().web_search_enabled = chk('f-search-on');
+  state.search_provider   = val('f-search-provider') || state.search_provider;
+  state.search_api_key    = val('f-search-key') || state.search_api_key;
+  ac().notes_enabled      = chk('f-notes-on');
+  const slEl              = document.getElementById('f-slaction-on');
+  if (slEl) ac().sl_action_enabled = slEl.checked;
+  const voiceEl           = document.getElementById('f-voice-on');
+  if (voiceEl) ac().voice_enabled  = voiceEl.checked;
 }
 
 // ============================================================
@@ -949,33 +1106,34 @@ function collectStep5() {
 // ============================================================
 
 function buildStep6() {
+  const c = ac();
   const paSections = [];
   if (state.discord_enabled)
     paSections.push(`
     <div class="form-group">
       <label for="f-pa-discord">Platform Awareness — Discord</label>
-      <textarea id="f-pa-discord" class="form-textarea" rows="8">${esc(state.pa_discord)}</textarea>
+      <textarea id="f-pa-discord" class="form-textarea" rows="8">${esc(c.pa_discord)}</textarea>
     </div>`);
   if (state.sl_enabled)
     paSections.push(`
     <div class="form-group">
       <label for="f-pa-sl">Platform Awareness — Second Life</label>
-      <textarea id="f-pa-sl" class="form-textarea" rows="20">${esc(state.pa_sl)}</textarea>
+      <textarea id="f-pa-sl" class="form-textarea" rows="20">${esc(c.pa_sl)}</textarea>
     </div>`);
   if (state.opensim_enabled)
     paSections.push(`
     <div class="form-group">
       <label for="f-pa-opensim">Platform Awareness — OpenSimulator</label>
-      <textarea id="f-pa-opensim" class="form-textarea" rows="10">${esc(state.pa_opensim)}</textarea>
+      <textarea id="f-pa-opensim" class="form-textarea" rows="10">${esc(c.pa_opensim)}</textarea>
     </div>`);
 
   return `
     <h2 class="step-heading">Context & Platform Awareness</h2>
-    <p class="step-desc">Add extra context and edit platform-specific behavior.</p>
+    <p class="step-desc">Add extra context and edit platform-specific behavior for this companion.</p>
 
     <div class="form-group">
       <label for="f-extra">Additional Context</label>
-      <textarea id="f-extra" class="form-textarea" rows="5" placeholder="Extra instructions, specific relationships, environment notes, or anything else that doesn't fit the categories above...">${esc(state.additional_context)}</textarea>
+      <textarea id="f-extra" class="form-textarea" rows="5" placeholder="Extra instructions, specific relationships, environment notes, or anything else that doesn't fit the categories above...">${esc(c.additional_context)}</textarea>
       <p class="form-hint">Free-form. Appended to the system prompt on every message.</p>
     </div>
 
@@ -988,13 +1146,13 @@ function buildStep6() {
 }
 
 function collectStep6() {
-  state.additional_context = val('f-extra');
+  ac().additional_context = val('f-extra');
   const d = document.getElementById('f-pa-discord');
   const s = document.getElementById('f-pa-sl');
   const o = document.getElementById('f-pa-opensim');
-  if (d) state.pa_discord  = d.value;
-  if (s) state.pa_sl       = s.value;
-  if (o) state.pa_opensim  = o.value;
+  if (d) ac().pa_discord  = d.value;
+  if (s) ac().pa_sl       = s.value;
+  if (o) ac().pa_opensim  = o.value;
 }
 
 // ============================================================
@@ -1068,20 +1226,26 @@ function buildStep8() {
   if (state.discord_enabled) platforms.push('<span class="badge">Discord</span>');
   if (state.sl_enabled) platforms.push(`<span class="badge">SL${state.opensim_enabled ? ' / OpenSim' : ''}</span>`);
 
+  const def = defaultCompanion();
   const tools = [];
-  if (state.web_search_enabled) tools.push('<span class="badge">Web Search</span>');
-  if (state.notes_enabled)      tools.push('<span class="badge">Notes</span>');
-  if (state.sl_action_enabled && state.sl_enabled) tools.push('<span class="badge">SL Actions</span>');
-  if (state.voice_enabled     && state.sl_enabled) tools.push('<span class="badge">Voice</span>');
+  if (def.web_search_enabled) tools.push('<span class="badge">Web Search</span>');
+  if (def.notes_enabled)      tools.push('<span class="badge">Notes</span>');
+  if (def.sl_action_enabled && state.sl_enabled) tools.push('<span class="badge">SL Actions</span>');
+  if (def.voice_enabled     && state.sl_enabled) tools.push('<span class="badge">Voice</span>');
+
+  const companionIds = Object.keys(state.companions);
+  const others = companionIds.length - 1;
+  const agentValue = esc(def.agent_name) + (others > 0
+    ? ` <span class="text-dim" style="font-size:0.85em">+${others} more</span>` : '');
 
   return `
     <h2 class="step-heading">Ready to Launch</h2>
-    <p class="step-desc">Review your configuration, then save.</p>
+    <p class="step-desc">Review your configuration, then save. Tools shown are for the default companion (${esc(def.agent_name)}).</p>
 
     <div class="review-grid">
       <div class="review-card">
-        <div class="review-label">Agent</div>
-        <div class="review-value">${esc(state.agent_name)}</div>
+        <div class="review-label">Companion${others > 0 ? 's' : ''}</div>
+        <div class="review-value">${agentValue}</div>
       </div>
       <div class="review-card">
         <div class="review-label">Model</div>
@@ -1205,6 +1369,10 @@ const collectors = {
 function renderStep(n) {
   const content = document.getElementById('step-content');
   content.innerHTML = builders[n] ? builders[n]() : `<p>Step ${n}</p>`;
+  if (COMPANION_STEPS.has(n)) {
+    content.insertAdjacentHTML('afterbegin', companionBarHtml());
+    bindCompanionBar();
+  }
   if (binders[n]) binders[n]();
 }
 
@@ -1238,27 +1406,36 @@ async function save() {
       OWNER_DISCORD_NAME:          state.owner_discord_name,
     },
     agent_config: {
-      agent_name: state.agent_name,
       command_center_name: state.command_center_name || 'Command Center',
-      agent_profile_image: state.agent_profile_image,
-      identity: {
-        agent_md: state.agent_md,
-        soul_md:  state.soul_md,
-        user_md:  state.user_md,
-      },
-      additional_context: state.additional_context,
-      platform_awareness: {
-        discord: state.pa_discord,
-        sl:      state.pa_sl,
-        opensim: state.pa_opensim,
-      },
-      tools: {
-        web_search: state.web_search_enabled,
-        notes:      state.notes_enabled,
-        sl_action:  state.sl_action_enabled,
-        voice:      state.voice_enabled,
-      },
+      default_agent_id: state.default_agent_id,
       supporting_agents: state.supporting_agents,
+      agents: Object.fromEntries(Object.entries(state.companions).map(([id, c]) => {
+        const agent = {
+          id,
+          agent_name: c.agent_name,
+          agent_profile_image: c.agent_profile_image,
+          additional_context: c.additional_context,
+          tools: {
+            web_search: c.web_search_enabled,
+            notes:      c.notes_enabled,
+            sl_action:  c.sl_action_enabled,
+            voice:      c.voice_enabled,
+          },
+          platform_awareness: {
+            discord: c.pa_discord,
+            sl:      c.pa_sl,
+            opensim: c.pa_opensim,
+          },
+          model_override: c.model_override ?? null,
+          identity: {
+            agent_md: c.agent_md,
+            soul_md:  c.soul_md,
+            user_md:  c.user_md,
+          },
+        };
+        if (c.platform_bindings) agent.platform_bindings = c.platform_bindings;
+        return [id, agent];
+      })),
     },
   };
 

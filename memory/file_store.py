@@ -8,6 +8,7 @@ from typing import Any
 
 import aiofiles
 
+from core.persona import get_default_agent_id
 from memory.base import AbstractMemoryStore
 from memory.schemas import ConversationFile, FactsFile
 from memory.session_index import SessionIndex
@@ -28,32 +29,56 @@ class FileMemoryStore(AbstractMemoryStore):
         self._max_history = max_history
         self._session_index = session_index
         self._vector_store = vector_store
-        # Per-(user_id, channel_id) locks to prevent write races
-        self._locks: dict[tuple[str, str], asyncio.Lock] = {}
+        # Per-(agent_id, user_id, channel_id) locks to prevent write races
+        self._locks: dict[tuple[str, str, str], asyncio.Lock] = {}
 
     # ------------------------------------------------------------------ paths
 
-    def _conv_path(self, user_id: str, channel_id: str) -> str:
-        user_dir = os.path.join(self._memory_dir, _safe(user_id))
+    def _agent_root(self, agent_id: str) -> str:
+        if not agent_id:
+            return self._memory_dir
+        return os.path.join(self._memory_dir, "agents", _safe(agent_id))
+
+    def _legacy_compatible(self, agent_id: str) -> bool:
+        return not agent_id or agent_id == get_default_agent_id()
+
+    def _conv_path(self, user_id: str, channel_id: str, agent_id: str = "") -> str:
+        user_dir = os.path.join(self._agent_root(agent_id), _safe(user_id))
         os.makedirs(user_dir, exist_ok=True)
         return os.path.join(user_dir, f"{_safe(channel_id)}.json")
 
-    def _facts_path(self, user_id: str) -> str:
+    def _legacy_conv_path(self, user_id: str, channel_id: str) -> str:
         user_dir = os.path.join(self._memory_dir, _safe(user_id))
+        return os.path.join(user_dir, f"{_safe(channel_id)}.json")
+
+    def _facts_path(self, user_id: str, agent_id: str = "") -> str:
+        user_dir = os.path.join(self._agent_root(agent_id), _safe(user_id))
         os.makedirs(user_dir, exist_ok=True)
         return os.path.join(user_dir, "_facts.json")
 
-    def _lock(self, user_id: str, channel_id: str) -> asyncio.Lock:
-        key = (user_id, channel_id)
+    def _legacy_facts_path(self, user_id: str) -> str:
+        user_dir = os.path.join(self._memory_dir, _safe(user_id))
+        return os.path.join(user_dir, "_facts.json")
+
+    def _lock(self, user_id: str, channel_id: str, agent_id: str = "") -> asyncio.Lock:
+        key = (agent_id, user_id, channel_id)
         if key not in self._locks:
             self._locks[key] = asyncio.Lock()
         return self._locks[key]
 
     # -------------------------------------------------------------- history
 
-    async def get_history(self, user_id: str, channel_id: str) -> list[dict[str, Any]]:
-        path = self._conv_path(user_id, channel_id)
+    async def get_history(
+        self,
+        user_id: str,
+        channel_id: str,
+        *,
+        agent_id: str = "",
+    ) -> list[dict[str, Any]]:
+        path = self._conv_path(user_id, channel_id, agent_id)
         data = await _read_json(path)
+        if data is None and self._legacy_compatible(agent_id):
+            data = await _read_json(self._legacy_conv_path(user_id, channel_id))
         if data is None:
             return []
         cf = ConversationFile.model_validate(data)
@@ -68,11 +93,14 @@ class FileMemoryStore(AbstractMemoryStore):
         content: str | list[Any],
         display_name: str = "",
         *,
+        agent_id: str = "",
         person_id: str = "",
     ) -> None:
-        async with self._lock(user_id, channel_id):
-            path = self._conv_path(user_id, channel_id)
+        async with self._lock(user_id, channel_id, agent_id):
+            path = self._conv_path(user_id, channel_id, agent_id)
             data = await _read_json(path)
+            if data is None and self._legacy_compatible(agent_id):
+                data = await _read_json(self._legacy_conv_path(user_id, channel_id))
             if data is None:
                 cf = ConversationFile(
                     user_id=user_id, channel_id=channel_id, platform=platform
@@ -94,6 +122,7 @@ class FileMemoryStore(AbstractMemoryStore):
                 asyncio.create_task(
                     self._index_and_vectorize(
                         user_id, channel_id, platform, role, text, display_name,
+                        agent_id=agent_id,
                         person_id=person_id,
                     )
                 )
@@ -107,14 +136,23 @@ class FileMemoryStore(AbstractMemoryStore):
         text: str,
         display_name: str,
         *,
+        agent_id: str = "",
         person_id: str = "",
     ) -> None:
         """Fire-and-forget: index in FTS5 and (if available) ChromaDB."""
         session_id = await self._session_index.index_turn(
-            user_id, channel_id, platform, role, text, _now(), display_name
+            user_id,
+            channel_id,
+            platform,
+            role,
+            text,
+            _now(),
+            display_name,
+            agent_id=agent_id,
         )
         if self._vector_store is not None and session_id is not None and person_id:
             metadata = {
+                "agent_id": agent_id,
                 "user_id": user_id,
                 "channel_id": channel_id,
                 "platform": platform,
@@ -123,12 +161,21 @@ class FileMemoryStore(AbstractMemoryStore):
                 "display_name": display_name,
                 "importance": -1.0,
             }
-            await self._vector_store.add_turn(person_id, session_id, text, metadata)
+            await self._vector_store.add_turn(_memory_namespace(agent_id, person_id), session_id, text, metadata)
 
-    async def trim_history(self, user_id: str, channel_id: str, max_turns: int) -> None:
-        async with self._lock(user_id, channel_id):
-            path = self._conv_path(user_id, channel_id)
+    async def trim_history(
+        self,
+        user_id: str,
+        channel_id: str,
+        max_turns: int,
+        *,
+        agent_id: str = "",
+    ) -> None:
+        async with self._lock(user_id, channel_id, agent_id):
+            path = self._conv_path(user_id, channel_id, agent_id)
             data = await _read_json(path)
+            if data is None and self._legacy_compatible(agent_id):
+                data = await _read_json(self._legacy_conv_path(user_id, channel_id))
             if data is None:
                 return
             cf = ConversationFile.model_validate(data)
@@ -139,16 +186,20 @@ class FileMemoryStore(AbstractMemoryStore):
 
     # --------------------------------------------------------------- facts
 
-    async def get_facts(self, user_id: str) -> dict[str, str]:
-        path = self._facts_path(user_id)
+    async def get_facts(self, user_id: str, *, agent_id: str = "") -> dict[str, str]:
+        path = self._facts_path(user_id, agent_id)
         data = await _read_json(path)
+        if data is None and self._legacy_compatible(agent_id):
+            data = await _read_json(self._legacy_facts_path(user_id))
         if data is None:
             return {}
         return FactsFile.model_validate(data).facts
 
-    async def get_all_conversations(self, user_id: str) -> list:
+    async def get_all_conversations(self, user_id: str, *, agent_id: str = "") -> list:
         """Return all ConversationFile objects for a user_id (all channels)."""
-        user_dir = os.path.join(self._memory_dir, _safe(user_id))
+        user_dir = os.path.join(self._agent_root(agent_id), _safe(user_id))
+        if not os.path.exists(user_dir) and self._legacy_compatible(agent_id):
+            user_dir = os.path.join(self._memory_dir, _safe(user_id))
         if not os.path.exists(user_dir):
             return []
         result = []
@@ -162,11 +213,13 @@ class FileMemoryStore(AbstractMemoryStore):
                         pass
         return result
 
-    async def upsert_fact(self, user_id: str, key: str, value: str) -> None:
+    async def upsert_fact(self, user_id: str, key: str, value: str, *, agent_id: str = "") -> None:
         # Use a channel-keyed lock scoped to facts
-        async with self._lock(user_id, "_facts"):
-            path = self._facts_path(user_id)
+        async with self._lock(user_id, "_facts", agent_id):
+            path = self._facts_path(user_id, agent_id)
             data = await _read_json(path)
+            if data is None and self._legacy_compatible(agent_id):
+                data = await _read_json(self._legacy_facts_path(user_id))
             ff = FactsFile.model_validate(data) if data else FactsFile(user_id=user_id)
             ff.facts[key] = value
             ff.updated_at = _now()
@@ -182,6 +235,10 @@ def _safe(name: str) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _memory_namespace(agent_id: str, person_id: str) -> str:
+    return f"{_safe(agent_id)}::{person_id}" if agent_id else person_id
 
 
 async def _read_json(path: str) -> dict | None:

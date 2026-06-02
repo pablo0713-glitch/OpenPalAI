@@ -30,6 +30,9 @@ const libraryDeleteButton = document.getElementById('library-delete-button');
 const libraryBrowserStatus = document.getElementById('library-browser-status');
 const chatStream = document.getElementById('chat-stream');
 const agentName = document.getElementById('agent-name');
+const agentSelector = document.getElementById('agent-selector');
+const groupModeToggle = document.getElementById('group-mode-toggle');
+const groupMembersContainer = document.getElementById('group-members');
 const runtimeProfile = document.getElementById('runtime-profile');
 const runtimeProfileImage = document.getElementById('runtime-profile-image');
 const providerName = document.getElementById('provider-name');
@@ -38,13 +41,21 @@ const uploadNote = document.getElementById('upload-note');
 
 const sessionKey = 'trixxie-command-session';
 const userKey = 'trixxie-command-user';
+const agentKey = 'trixxie-command-agent';
 const preferencesKey = 'trixxie-command-preferences';
+const groupModeKey = 'trixxie-command-group-mode';
+const groupMembersKey = 'trixxie-command-group-members';
 let conversationId = localStorage.getItem(sessionKey) || createSessionId();
 let commandUserId = localStorage.getItem(userKey) || createBrowserUserId();
+let selectedAgentId = localStorage.getItem(agentKey) || '';
+let groupMode = localStorage.getItem(groupModeKey) === '1';
+let groupMembers = loadGroupMembers();
 let libraryModules = [];
 let selectedLibraryId = '';
 let commandPreferences = loadPreferences();
+let availableAgents = [];
 let agentIdentity = {
+  id: '',
   name: 'Agent',
   commandCenterName: 'Command Center',
   profileImage: '',
@@ -81,6 +92,26 @@ libraryRefreshButton.addEventListener('click', () => {
 libraryDetailAlwaysOn.addEventListener('change', () => {
   librarySaveButton.disabled = !selectedLibraryId;
 });
+agentSelector.addEventListener('change', () => {
+  selectedAgentId = agentSelector.value;
+  localStorage.setItem(agentKey, selectedAgentId);
+  void loadStatus();
+  void loadConversationHistory();
+});
+
+groupModeToggle.checked = groupMode;
+if (groupMode) {
+  messageInput.placeholder = 'Message the group. @mention a companion to address it directly, or just talk to everyone.';
+}
+groupModeToggle.addEventListener('change', () => {
+  groupMode = groupModeToggle.checked;
+  localStorage.setItem(groupModeKey, groupMode ? '1' : '0');
+  groupMembersContainer.classList.toggle('hidden', !groupMode);
+  messageInput.placeholder = groupMode
+    ? 'Message the group. @mention a companion to address it directly, or just talk to everyone.'
+    : 'Talk to the agent, or attach an image/document and ask a question about it.';
+  void loadConversationHistory();
+});
 
 messageInput.addEventListener('keydown', (event) => {
   if (event.isComposing) {
@@ -110,13 +141,25 @@ async function initializeCommandCenter() {
 
 async function loadStatus() {
   try {
-    const response = await fetch('/command/status');
+    const params = new URLSearchParams();
+    if (selectedAgentId) {
+      params.set('agent_id', selectedAgentId);
+    }
+    const response = await fetch(`/command/status?${params.toString()}`);
     const data = await response.json();
+    availableAgents = Array.isArray(data.agents) ? data.agents : [];
+    selectedAgentId = data.agent_id || data.default_agent_id || selectedAgentId || '';
+    if (selectedAgentId) {
+      localStorage.setItem(agentKey, selectedAgentId);
+    }
     agentIdentity = {
+      id: selectedAgentId,
       name: data.agent_name || 'Agent',
       commandCenterName: data.command_center_name || 'Command Center',
       profileImage: data.agent_profile_image || '',
     };
+    renderAgentSelector();
+    renderGroupMembers();
     agentName.textContent = agentIdentity.name;
     renderRuntimeProfile();
     providerName.textContent = data.model_provider || '—';
@@ -129,11 +172,15 @@ async function loadStatus() {
 }
 
 async function loadConversationHistory() {
+  if (groupMode) {
+    return loadGroupHistory();
+  }
   chatStream.innerHTML = '';
   try {
     const params = new URLSearchParams({
       conversation_id: conversationId,
       command_user_id: commandUserId,
+      agent_id: selectedAgentId,
     });
     const response = await fetch(`/command/history?${params.toString()}`);
     const data = await response.json();
@@ -142,14 +189,14 @@ async function loadConversationHistory() {
     }
     const messages = Array.isArray(data.messages) ? data.messages : [];
     if (!messages.length) {
-      appendMessage('agent', 'Command Center is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.');
+      appendMessage('agent', `${data.agent_name || agentIdentity.name} is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.`);
       return;
     }
     for (const message of messages) {
       appendMessage(message.role === 'user' ? 'user' : 'agent', message.text || '');
     }
   } catch {
-    appendMessage('agent', 'Command Center is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.');
+    appendMessage('agent', `${agentIdentity.name} is ready. Use this panel for direct chat, and switch tabs when you need setup or debugging.`);
   }
 }
 
@@ -183,6 +230,10 @@ function renderLibraryAttachmentList() {
 }
 
 async function sendMessage() {
+  if (groupMode) {
+    void sendGroupMessage();
+    return;
+  }
   const text = messageInput.value.trim();
   const files = Array.from(fileInput.files || []);
   if (!text && !files.length) {
@@ -197,6 +248,7 @@ async function sendMessage() {
   formData.append('conversation_id', conversationId);
   formData.append('command_user_id', commandUserId);
   formData.append('display_name', agentIdentity.commandCenterName || 'Command Center');
+  formData.append('agent_id', selectedAgentId);
   for (const file of files) {
     formData.append('files', file);
   }
@@ -216,6 +268,19 @@ async function sendMessage() {
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Request failed');
     }
+    if (data.agent_id && data.agent_id !== selectedAgentId) {
+      selectedAgentId = data.agent_id;
+      localStorage.setItem(agentKey, selectedAgentId);
+      renderAgentSelector();
+    }
+    if (data.agent_name) {
+      agentIdentity.name = data.agent_name;
+      agentName.textContent = agentIdentity.name;
+    }
+    if (typeof data.agent_profile_image === 'string') {
+      agentIdentity.profileImage = data.agent_profile_image;
+      renderRuntimeProfile();
+    }
     appendMessage('agent', data.reply || '(no reply)');
     sendStatus.textContent = data.rate_limited ? 'Rate limited' : 'Ready';
   } catch (error) {
@@ -224,6 +289,158 @@ async function sendMessage() {
   } finally {
     setSendBusy(false);
     chatStream.scrollTop = chatStream.scrollHeight;
+  }
+}
+
+async function sendGroupMessage() {
+  const text = messageInput.value.trim();
+  if (!text) {
+    sendStatus.textContent = 'Add a message';
+    return;
+  }
+  const ids = [...groupMembers];
+  if (!ids.length) {
+    sendStatus.textContent = 'Pick at least one companion for the group';
+    return;
+  }
+
+  appendMessage('user', text);
+
+  const formData = new FormData();
+  formData.append('message', text);
+  formData.append('conversation_id', conversationId);
+  formData.append('command_user_id', commandUserId);
+  formData.append('display_name', agentIdentity.commandCenterName || 'Command Center');
+  formData.append('agent_ids', ids.join(','));
+
+  messageInput.value = '';
+  setSendBusy(true);
+  sendStatus.textContent = 'Companions are talking…';
+
+  try {
+    const response = await fetch('/command/group-chat', { method: 'POST', body: formData });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || 'Request failed');
+    }
+    const replies = Array.isArray(data.replies) ? data.replies : [];
+    if (!replies.length) {
+      appendMessage('agent', '(no companion responded — @mention one to address it directly)', [], { name: 'Group', avatar: '' });
+    }
+    for (const reply of replies) {
+      appendMessage('agent', reply.text || '(no reply)', [], {
+        name: reply.agent_name,
+        avatar: reply.agent_profile_image || '',
+      });
+    }
+    sendStatus.textContent = 'Ready';
+  } catch (error) {
+    appendMessage('agent', `Request failed: ${error.message}`, [], { name: 'Group', avatar: '' });
+    sendStatus.textContent = 'Request failed';
+  } finally {
+    setSendBusy(false);
+    chatStream.scrollTop = chatStream.scrollHeight;
+  }
+}
+
+async function loadGroupHistory() {
+  chatStream.innerHTML = '';
+  try {
+    const params = new URLSearchParams({
+      conversation_id: conversationId,
+      command_user_id: commandUserId,
+    });
+    const response = await fetch(`/command/group-history?${params.toString()}`);
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || 'Failed to load group history');
+    }
+    const messages = Array.isArray(data.messages) ? data.messages : [];
+    if (!messages.length) {
+      appendMessage('agent', 'Group chat ready. Your message goes to every selected companion; @mention one to address it directly. Companions @mention each other to keep the thread going.', [], { name: 'Group', avatar: '' });
+      return;
+    }
+    for (const message of messages) {
+      if (message.role === 'user') {
+        appendMessage('user', message.text || '');
+      } else {
+        appendMessage('agent', message.text || '', [], {
+          name: message.name || 'Agent',
+          avatar: message.agent_profile_image || '',
+        });
+      }
+    }
+  } catch {
+    appendMessage('agent', 'Group chat ready. Select companions in the sidebar and start talking.', [], { name: 'Group', avatar: '' });
+  }
+}
+
+function renderGroupMembers() {
+  if (!groupMembersContainer) {
+    return;
+  }
+  if (!groupMembers.size && availableAgents.length) {
+    groupMembers = new Set(availableAgents.map((agent) => agent.id));
+    persistGroupMembers();
+  }
+  groupMembersContainer.innerHTML = '';
+  for (const agent of availableAgents) {
+    const label = document.createElement('label');
+    label.className = 'checkbox-row compact-checkbox group-member';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = groupMembers.has(agent.id);
+    checkbox.disabled = !agent.enabled;
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) {
+        groupMembers.add(agent.id);
+      } else {
+        groupMembers.delete(agent.id);
+      }
+      persistGroupMembers();
+    });
+    const span = document.createElement('span');
+    span.textContent = agent.is_default ? `${agent.agent_name} (default)` : agent.agent_name;
+    label.appendChild(checkbox);
+    label.appendChild(span);
+    groupMembersContainer.appendChild(label);
+  }
+  groupMembersContainer.classList.toggle('hidden', !groupMode);
+}
+
+function loadGroupMembers() {
+  try {
+    const raw = localStorage.getItem(groupMembersKey);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistGroupMembers() {
+  localStorage.setItem(groupMembersKey, JSON.stringify([...groupMembers]));
+}
+
+function renderAgentSelector() {
+  if (!agentSelector) {
+    return;
+  }
+  agentSelector.innerHTML = '';
+  for (const agent of availableAgents) {
+    const option = document.createElement('option');
+    option.value = agent.id;
+    option.textContent = agent.is_default ? `${agent.agent_name} (default)` : agent.agent_name;
+    if (!agent.enabled) {
+      option.disabled = true;
+    }
+    agentSelector.appendChild(option);
+  }
+  if (selectedAgentId) {
+    agentSelector.value = selectedAgentId;
   }
 }
 
@@ -424,26 +641,31 @@ function clearLibraryDetail(status = 'Ready') {
   libraryBrowserStatus.textContent = status;
 }
 
-function appendMessage(role, text, files = []) {
+function appendMessage(role, text, files = [], meta = null) {
   const article = document.createElement('article');
   article.className = `message ${role}`;
 
   const header = document.createElement('div');
   header.className = 'message-header';
 
-  if (role === 'agent' && agentIdentity.profileImage) {
+  const displayName = role === 'user'
+    ? (agentIdentity.commandCenterName || 'Command Center')
+    : (meta && meta.name ? meta.name : agentIdentity.name);
+  const avatarSrc = role === 'agent'
+    ? (meta ? meta.avatar : agentIdentity.profileImage)
+    : '';
+
+  if (role === 'agent' && avatarSrc) {
     const avatar = document.createElement('img');
     avatar.className = 'message-avatar';
-    avatar.src = agentIdentity.profileImage;
-    avatar.alt = `${agentIdentity.name} profile image`;
+    avatar.src = avatarSrc;
+    avatar.alt = `${displayName} profile image`;
     header.appendChild(avatar);
   }
 
   const title = document.createElement('p');
   title.className = 'message-role';
-  title.textContent = role === 'user'
-    ? (agentIdentity.commandCenterName || 'Command Center')
-    : agentIdentity.name;
+  title.textContent = displayName;
   header.appendChild(title);
   article.appendChild(header);
 

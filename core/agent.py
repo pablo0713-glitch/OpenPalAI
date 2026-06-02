@@ -18,7 +18,8 @@ from core.model_adapter import ModelAdapter
 from core.persona import (
     MessageContext,
     build_system_prompt_blocks,
-    get_agent_config,
+    get_companion_agent,
+    get_default_agent_id,
     get_identity_files_meta,
     get_identity_files_text,
     _get_platform_awareness,
@@ -151,8 +152,14 @@ class AgentCore:
         self._last_prompt: dict[str, str] = {}
         self._last_exchange: dict[str, dict] = {}
 
-    async def handle_message(self, message: str | list[dict[str, Any]], context: MessageContext) -> AgentResponse:
-        if not self._rate_limiter.check(context.user_id):
+    async def handle_message(
+        self,
+        message: str | list[dict[str, Any]],
+        context: MessageContext,
+        *,
+        skip_rate_limit: bool = False,
+    ) -> AgentResponse:
+        if not skip_rate_limit and not self._rate_limiter.check(context.user_id):
             return AgentResponse(
                 text="Give me a second — you're moving fast. Try again in a moment.",
                 was_rate_limited=True,
@@ -161,8 +168,8 @@ class AgentCore:
         message_content = message
         message_text = _content_text(message_content)
 
-        history = await self._memory.get_history(context.user_id, context.channel_id)
-        facts = await self._memory.get_facts(context.user_id)
+        history = await self._memory.get_history(context.user_id, context.channel_id, agent_id=context.agent_id)
+        facts = await self._memory.get_facts(context.user_id, agent_id=context.agent_id)
 
         memory_files = ""
         stm_bridge = ""
@@ -170,10 +177,10 @@ class AgentCore:
             person_id = self._person_map.get_person_id(context.user_id) or context.user_id
             context.person_id = person_id
             if person_id:
-                memory_files = await self._load_memory_files(person_id)
+                memory_files = await self._load_memory_files(person_id, context.agent_id)
             linked_ids = self._person_map.get_linked_ids(context.user_id)
             if linked_ids:
-                stm_bridge = await self._load_stm_bridge(linked_ids)
+                stm_bridge = await self._load_stm_bridge(linked_ids, context.agent_id)
         else:
             context.person_id = context.user_id
 
@@ -202,15 +209,16 @@ class AgentCore:
         self._last_prompt[context.user_id] = system_flat
 
         # Structured metadata for the debug "Prompt Blocks" view
-        _cfg = get_agent_config()
+        _cfg = get_companion_agent(context.agent_id)
         _pa = _get_platform_awareness(_cfg, context.platform)
         _addl = _cfg.get("additional_context", "") or ""
-        _identity_meta = get_identity_files_meta()
+        _identity_meta = get_identity_files_meta(context.agent_id)
         _prompt_sections = {
             "identity_files": _identity_meta,
-            "identity_files_text": get_identity_files_text(),
+            "identity_files_text": get_identity_files_text(context.agent_id),
             "identity_fallback": not bool(_identity_meta),
             "platform": context.platform,
+            "agent_id": context.agent_id,
             "platform_awareness_chars": len(_pa),
             "platform_awareness_text": _pa,
             "additional_context_chars": len(_addl.strip()),
@@ -260,7 +268,7 @@ class AgentCore:
         # unresponded user messages in history when the model returns empty.
         await self._memory.append_turn(
             context.user_id, context.channel_id, context.platform, "user", message_content,
-            context.display_name, person_id=person_id,
+            context.display_name, agent_id=context.agent_id, person_id=person_id,
         )
 
         # Persist only the final assistant text reply. Intermediate tool_use /
@@ -291,12 +299,13 @@ class AgentCore:
             await self._memory.append_turn(
                 context.user_id, context.channel_id, context.platform,
                 final_reply["role"], final_reply["content"],
+                agent_id=context.agent_id,
                 person_id=person_id,
             )
 
         # Fire-and-forget STM entry generation
         asyncio.create_task(
-            self._append_stm_entry(context.user_id, message_text, reply_text)
+            self._append_stm_entry(context.user_id, context.agent_id, message_text, reply_text)
         )
 
         return AgentResponse(text=reply_text, sl_actions=sl_action_queue)
@@ -310,8 +319,14 @@ class AgentCore:
     def all_tracked_users(self) -> list[str]:
         return list(self._last_prompt.keys())
 
-    async def get_conversation_history(self, user_id: str, channel_id: str) -> list[dict[str, str]]:
-        history = await self._memory.get_history(user_id, channel_id)
+    async def get_conversation_history(
+        self,
+        user_id: str,
+        channel_id: str,
+        *,
+        agent_id: str = "",
+    ) -> list[dict[str, str]]:
+        history = await self._memory.get_history(user_id, channel_id, agent_id=agent_id)
         rendered: list[dict[str, str]] = []
         for turn in history:
             role = _get_role(turn)
@@ -326,10 +341,16 @@ class AgentCore:
             })
         return rendered
 
-    async def _load_memory_files(self, person_id: str) -> str:
+    async def _load_memory_files(self, person_id: str, agent_id: str = "") -> str:
         """Load MEMORY.md + USER.md for person_id, formatted Hermes-style with § delimiters."""
         safe = person_id.replace("/", "_").replace(":", "_")
-        mem_dir = Path(self._settings.memory_dir) / safe
+        mem_dir = (
+            Path(self._settings.memory_dir) / "agents" / agent_id.replace("/", "_").replace(":", "_") / safe
+            if agent_id
+            else Path(self._settings.memory_dir) / safe
+        )
+        if agent_id and not mem_dir.exists() and agent_id == get_default_agent_id():
+            mem_dir = Path(self._settings.memory_dir) / safe
         parts: list[str] = []
         for fname, cap, label in (
             ("MEMORY.md", MEMORY_CAP, "MEMORY (agent's notes)"),
@@ -353,13 +374,23 @@ class AgentCore:
             parts.append(f"{header}\n{content}")
         return "\n\n".join(parts)
 
-    async def _load_stm_bridge(self, linked_ids: list[str]) -> str:
+    async def _load_stm_bridge(self, linked_ids: list[str], agent_id: str = "") -> str:
         """Load STM entries from linked platform UIDs for cross-platform context."""
         parts: list[str] = []
         for uid in linked_ids:
             platform = uid.split("_")[0].upper()
             safe = uid.replace("/", "_").replace(":", "_")
-            stm_path = Path(self._settings.memory_dir) / safe / "stm.json"
+            stm_path = (
+                Path(self._settings.memory_dir)
+                / "agents"
+                / agent_id.replace("/", "_").replace(":", "_")
+                / safe
+                / "stm.json"
+                if agent_id
+                else Path(self._settings.memory_dir) / safe / "stm.json"
+            )
+            if agent_id and not stm_path.exists() and agent_id == get_default_agent_id():
+                stm_path = Path(self._settings.memory_dir) / safe / "stm.json"
             if not stm_path.exists():
                 continue
             try:
@@ -376,7 +407,13 @@ class AgentCore:
             return ""
         return "\n\n".join(parts)
 
-    async def _append_stm_entry(self, user_id: str, user_message: str, reply_text: str) -> None:
+    async def _append_stm_entry(
+        self,
+        user_id: str,
+        agent_id: str,
+        user_message: str,
+        reply_text: str,
+    ) -> None:
         """Generate a 1–2 sentence summary of this exchange and append to stm.json."""
         try:
             summary = await self._adapter.create_simple(
@@ -396,7 +433,15 @@ class AgentCore:
             if not summary:
                 return
             safe = user_id.replace("/", "_").replace(":", "_")
-            stm_path = Path(self._settings.memory_dir) / safe / "stm.json"
+            stm_path = (
+                Path(self._settings.memory_dir)
+                / "agents"
+                / agent_id.replace("/", "_").replace(":", "_")
+                / safe
+                / "stm.json"
+                if agent_id
+                else Path(self._settings.memory_dir) / safe / "stm.json"
+            )
             stm_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 data = json.loads(stm_path.read_text(encoding="utf-8")) if stm_path.exists() else {}

@@ -9,7 +9,7 @@ import aiofiles
 
 from core.memory_curator import MemoryCuratorAgent
 from core.model_adapter import ModelAdapter
-from core.persona import get_agent_config
+from core.persona import get_companion_agent, list_companion_agents
 from memory.file_store import FileMemoryStore
 from memory.person_map import PersonMap
 from memory.schemas import ConversationFile
@@ -55,17 +55,18 @@ class MemoryConsolidator:
         self._importance_threshold = importance_threshold
 
     async def run_all(self) -> None:
-        for person_id in self._person_map.all_persons():
-            try:
-                await self._check_and_consolidate(person_id)
-            except Exception:
-                logger.exception("Consolidation failed for person '%s'", person_id)
+        for agent in list_companion_agents():
+            for person_id in self._person_map.all_persons():
+                try:
+                    await self._check_and_consolidate(agent["id"], person_id)
+                except Exception:
+                    logger.exception("Consolidation failed for agent '%s' person '%s'", agent["id"], person_id)
 
-    async def _check_and_consolidate(self, person_id: str) -> None:
+    async def _check_and_consolidate(self, agent_id: str, person_id: str) -> None:
         user_ids = self._person_map.get_person_user_ids(person_id)
         all_convs: list[ConversationFile] = []
         for uid in user_ids:
-            all_convs.extend(await self._store.get_all_conversations(uid))
+            all_convs.extend(await self._store.get_all_conversations(uid, agent_id=agent_id))
 
         if not all_convs:
             return
@@ -75,13 +76,13 @@ class MemoryConsolidator:
             return
         logger.info(
             "Consolidating memory for '%s': %d files, %d total turns (threshold %d)",
-            person_id, len(all_convs), total, self._threshold,
+            f"{agent_id}:{person_id}", len(all_convs), total, self._threshold,
         )
 
         # Score unscored turns for all user_ids linked to this person
         if self._curator and self._session_index:
             for uid in user_ids:
-                unscored = await self._session_index.get_unscored_turns(uid, limit=200)
+                unscored = await self._session_index.get_unscored_turns(uid, limit=200, agent_id=agent_id)
                 if unscored:
                     scores = await self._curator.score_turns(unscored)
                     await self._session_index.set_importance_batch(scores)
@@ -90,39 +91,39 @@ class MemoryConsolidator:
                         len(scores), len(unscored), uid,
                     )
 
-        await self._consolidate(person_id, all_convs)
+        await self._consolidate(agent_id, person_id, all_convs)
 
         for uid in user_ids:
-            convs = await self._store.get_all_conversations(uid)
+            convs = await self._store.get_all_conversations(uid, agent_id=agent_id)
             for conv in convs:
-                await self._store.trim_history(uid, conv.channel_id, self._keep_turns)
+                await self._store.trim_history(uid, conv.channel_id, self._keep_turns, agent_id=agent_id)
 
         logger.info(
             "Consolidation complete for '%s'. Files trimmed to %d turns.",
             person_id, self._keep_turns,
         )
 
-    async def _consolidate(self, person_id: str, convs: list[ConversationFile]) -> None:
+    async def _consolidate(self, agent_id: str, person_id: str, convs: list[ConversationFile]) -> None:
         # Build transcript filtered to high-importance turns when curator is available
         if self._curator and self._session_index:
             user_ids = self._person_map.get_person_user_ids(person_id)
             high_importance: set[str] = set()
             for uid in user_ids:
                 rows = await self._session_index.get_high_importance_turns(
-                    uid, threshold=self._importance_threshold
+                    uid, threshold=self._importance_threshold, agent_id=agent_id
                 )
                 for row in rows:
                     high_importance.add(row["content"][:200])
-            transcript = _build_transcript(convs, high_importance_content=high_importance or None)
+            transcript = _build_transcript(agent_id, convs, high_importance_content=high_importance or None)
         else:
-            transcript = _build_transcript(convs)
+            transcript = _build_transcript(agent_id, convs)
 
         if not transcript.strip():
             return
 
         # Curator gate: skip if nothing new worth adding
         if self._curator:
-            memory_dir = Path(self._notes_dir).parent / "memory"
+            memory_dir = Path(self._notes_dir).parent / "memory" / "agents" / agent_id
             safe = person_id.replace("/", "_").replace(":", "_")
             existing_text = ""
             mem_file = memory_dir / safe / "MEMORY.md"
@@ -132,12 +133,12 @@ class MemoryConsolidator:
                 logger.info("Curator gate: skipping consolidation for '%s' (no new value)", person_id)
                 return
 
-        notes_text = await self._ask_model(person_id, transcript)
+        notes_text = await self._ask_model(agent_id, person_id, transcript)
         if not notes_text:
             return
 
         # Append new bullet points into MEMORY.md (bounded, trim oldest to make room)
-        memory_dir = Path(self._notes_dir).parent / "memory"
+        memory_dir = Path(self._notes_dir).parent / "memory" / "agents" / agent_id
         safe = person_id.replace("/", "_").replace(":", "_")
         memory_file = memory_dir / safe / "MEMORY.md"
         memory_file.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +167,7 @@ class MemoryConsolidator:
         memory_file.write_text(existing, encoding="utf-8")
 
         # Keep markdown audit trail
-        person_notes_dir = os.path.join(self._notes_dir, person_id)
+        person_notes_dir = os.path.join(self._notes_dir, agent_id, person_id)
         os.makedirs(person_notes_dir, exist_ok=True)
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         audit_path = os.path.join(person_notes_dir, f"memories_{date_str}.md")
@@ -175,8 +176,8 @@ class MemoryConsolidator:
 
         logger.info("Memory consolidated for '%s' → %s (%d chars)", person_id, memory_file, len(existing))
 
-    async def _ask_model(self, person_id: str, transcript: str) -> str:
-        cfg = get_agent_config()
+    async def _ask_model(self, agent_id: str, person_id: str, transcript: str) -> str:
+        cfg = get_companion_agent(agent_id)
         agent_name = cfg.get("agent_name", "the agent")
 
         prompt = (
@@ -205,6 +206,7 @@ class MemoryConsolidator:
 # ------------------------------------------------------------------ helpers
 
 def _build_transcript(
+    agent_id: str,
     convs: list[ConversationFile],
     high_importance_content: set[str] | None = None,
 ) -> str:
@@ -214,7 +216,7 @@ def _build_transcript(
     one of those snippets are included. This filters the transcript to scored
     high-importance content before passing it to the consolidation model.
     """
-    cfg = get_agent_config()
+    cfg = get_companion_agent(agent_id)
     agent_name = cfg.get("agent_name", "Agent")
     parts: list[str] = []
 

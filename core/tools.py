@@ -324,8 +324,8 @@ class ToolRegistry:
         self._recall_agent = recall_agent
 
     def get_definitions(self, context: MessageContext) -> list[dict]:
-        from core.persona import get_agent_config
-        cfg_tools = get_agent_config().get("tools", {})
+        from core.persona import get_companion_agent
+        cfg_tools = get_companion_agent(context.agent_id).get("tools", {})
 
         tools = []
         if cfg_tools.get("web_search", True):

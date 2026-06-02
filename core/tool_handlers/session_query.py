@@ -32,6 +32,7 @@ async def handle_session_query(
         include_names=include_names or None,
         exclude_names=exclude_names or None,
         limit=limit,
+        agent_id=context.agent_id,
     )
 
     if not rows:

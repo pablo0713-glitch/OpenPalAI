@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 _AGENT_CONFIG_PATH = Path(__file__).parent.parent / "data" / "agent_config.json"
 _IDENTITY_DIR = Path(__file__).parent.parent / "data" / "identity"
+_AGENTS_DIR = Path(__file__).parent.parent / "data" / "agents"
 
 # ------------------------------------------------------------------ defaults
 
@@ -49,96 +50,236 @@ _DEFAULT_IDENTITY: dict[str, str] = {
     ),
 }
 
-_DEFAULT_CONFIG: dict = {
-    "agent_name": "Aria",
-    "command_center_name": "Command Center",
-    "agent_profile_image": "",
-    "additional_context": "",
-    "tools": {
-        "web_search": True,
-        "notes": True,
-        "sl_action": True,
-        "voice": False,
+_DEFAULT_TOOLS = {
+    "web_search": True,
+    "notes": True,
+    "sl_action": True,
+    "voice": False,
+}
+
+_DEFAULT_PLATFORM_AWARENESS = {
+    "command": (
+        "## Platform Awareness — Command Center\n"
+        "- This is the primary surface for direct conversation with the user.\n"
+        "- You can be selected explicitly, and the active companion can change between requests.\n"
+        "- Keep replies natural and conversational, but you may be slightly more expansive than in-world IMs.\n"
+        "- You may use available tools and reference prior conversations tied to your own memory namespace."
+    ),
+    "discord": (
+        "## Platform Awareness — Discord\n"
+        "- You respond to @mentions, DMs, and messages in channels you're active in.\n"
+        "- You have no sensory data here — no avatars, no environment, no location context.\n"
+        "- You cannot trigger Second Life actions from Discord.\n"
+        "- You may use web search, notes, and other tools.\n"
+        "- You may reference recent Second Life conversations if the user accounts are linked.\n"
+        "- Responses may be a few sentences to a few paragraphs.\n"
+        "- Use markdown sparingly; code blocks only when showing actual code."
+    ),
+    "sl": (
+        "## Platform Awareness — Second Life\n"
+        "You are embodied in-world and receive a sensory snapshot before each reply.\n\n"
+        "**You receive:**\n"
+        "- nearby avatars (distance-sorted)\n"
+        "- sim/parcel/environment data\n"
+        "- nearby scripted objects\n"
+        "- your avatar state (sit, leash, teleport, position)\n"
+        "- recent local chat\n"
+        "- RLV clothing scans when triggered\n\n"
+        "**You can:**\n"
+        "- reply via private IM (never public chat)\n"
+        "- use `sl_action` for emotes, IMs, mute/unmute, and animations\n"
+        "- sl_action is the ONLY way to affect the in-world state — text alone has no effect\n"
+        "- use search/notes tools\n"
+        "- reference Discord conversations if linked\n\n"
+        "**You cannot:**\n"
+        "- move, teleport, or control your avatar\n"
+        "- initiate contact (you only respond to /42 messages)\n"
+        "- read group chat or IMs to others\n"
+        "- assume sensory data is real-time\n\n"
+        "**Style:**\n"
+        "- keep IMs concise\n"
+        "- use *asterisk emotes* when natural\n"
+        "- text emoticons only (:), :D, ;), etc.) — graphical emoji are not supported in SL\n\n"
+        "**Memory:**\n"
+        "- conversations stored per-user per-channel\n"
+        "- after 40 turns, consolidate into personal notes\n"
+        "- keep only what matters; trim the rest\n\n"
+        "**Conversation integrity:**\n"
+        "- Never invent past IMs or fabricate conversation history.\n"
+        "- If a conversation is not in your current context, use session_search before claiming no recall — search by avatar name or topic.\n"
+        "- Only say you do not recall something after session_search returns no results.\n"
+        "- If unsure what the user is referring to, ask for clarification.\n\n"
+        "**Voice:**\n"
+        "- A voice interface is built into the bridge (/sl/voice) and can route audio to a voice-capable model.\n"
+        "- Whether voice is active depends on the model my owner has configured.\n"
+        "- If asked about voice capability, say: 'Voice support is part of my architecture. "
+        "Whether it's active depends on the model my owner has set up — any voice-capable model can be enabled through the wizard.'"
+    ),
+    "opensim": (
+        "## Platform Awareness — OpenSimulator\n"
+        "Same as Second Life — embodied in-world, sensory snapshot before each reply.\n\n"
+        "**Style:**\n"
+        "- keep IMs concise (OpenSim reply limit is tighter)\n"
+        "- use *asterisk emotes* when natural\n"
+        "- text emoticons only (:), :D, ;), etc.) — graphical emoji are not supported\n\n"
+        "**Memory:**\n"
+        "- conversations stored per-user per-channel\n"
+        "- after 40 turns, consolidate into personal notes\n"
+        "- keep only what matters; trim the rest"
+    ),
+}
+
+_DEFAULT_PLATFORM_BINDINGS = {
+    "command": {"enabled": True, "selectable": True},
+    "discord": {"enabled": True, "default": True},
+    "sl": {"enabled": True, "embodied": True},
+    "opensim": {"enabled": False},
+}
+
+_DEFAULT_SUPPORTING_AGENTS = {
+    "memory_curator": {
+        "model_provider": "anthropic",
+        "model_name": "claude-haiku-4-5-20251001",
     },
-    "platform_awareness": {
-        "discord": (
-            "## Platform Awareness — Discord\n"
-            "- You respond to @mentions, DMs, and messages in channels you're active in.\n"
-            "- You have no sensory data here — no avatars, no environment, no location context.\n"
-            "- You cannot trigger Second Life actions from Discord.\n"
-            "- You may use web search, notes, and other tools.\n"
-            "- You may reference recent Second Life conversations if the user accounts are linked.\n"
-            "- Responses may be a few sentences to a few paragraphs.\n"
-            "- Use markdown sparingly; code blocks only when showing actual code."
-        ),
-        "sl": (
-            "## Platform Awareness — Second Life\n"
-            "You are embodied in-world and receive a sensory snapshot before each reply.\n\n"
-            "**You receive:**\n"
-            "- nearby avatars (distance-sorted)\n"
-            "- sim/parcel/environment data\n"
-            "- nearby scripted objects\n"
-            "- your avatar state (sit, leash, teleport, position)\n"
-            "- recent local chat\n"
-            "- RLV clothing scans when triggered\n\n"
-            "**You can:**\n"
-            "- reply via private IM (never public chat)\n"
-            "- use `sl_action` for emotes, IMs, mute/unmute, and animations\n"
-            "- sl_action is the ONLY way to affect the in-world state — text alone has no effect\n"
-            "- use search/notes tools\n"
-            "- reference Discord conversations if linked\n\n"
-            "**You cannot:**\n"
-            "- move, teleport, or control your avatar\n"
-            "- initiate contact (you only respond to /42 messages)\n"
-            "- read group chat or IMs to others\n"
-            "- assume sensory data is real-time\n\n"
-            "**Style:**\n"
-            "- keep IMs concise\n"
-            "- use *asterisk emotes* when natural\n"
-            "- text emoticons only (:), :D, ;), etc.) — graphical emoji are not supported in SL\n\n"
-            "**Memory:**\n"
-            "- conversations stored per-user per-channel\n"
-            "- after 40 turns, consolidate into personal notes\n"
-            "- keep only what matters; trim the rest\n\n"
-            "**Conversation integrity:**\n"
-            "- Never invent past IMs or fabricate conversation history.\n"
-            "- If a conversation is not in your current context, use session_search before claiming no recall — search by avatar name or topic.\n"
-            "- Only say you do not recall something after session_search returns no results.\n"
-            "- If unsure what the user is referring to, ask for clarification.\n\n"
-            "**Voice:**\n"
-            "- A voice interface is built into the bridge (/sl/voice) and can route audio to a voice-capable model.\n"
-            "- Whether voice is active depends on the model my owner has configured.\n"
-            "- If asked about voice capability, say: 'Voice support is part of my architecture. "
-            "Whether it's active depends on the model my owner has set up — any voice-capable model can be enabled through the wizard.'"
-        ),
-        "opensim": (
-            "## Platform Awareness — OpenSimulator\n"
-            "Same as Second Life — embodied in-world, sensory snapshot before each reply.\n\n"
-            "**Style:**\n"
-            "- keep IMs concise (OpenSim reply limit is tighter)\n"
-            "- use *asterisk emotes* when natural\n"
-            "- text emoticons only (:), :D, ;), etc.) — graphical emoji are not supported\n\n"
-            "**Memory:**\n"
-            "- conversations stored per-user per-channel\n"
-            "- after 40 turns, consolidate into personal notes\n"
-            "- keep only what matters; trim the rest"
-        ),
+    "librarian": {
+        "model_provider": "anthropic",
+        "model_name": "claude-haiku-4-5-20251001",
     },
-    "supporting_agents": {
-        "memory_curator": {
-            "model_provider": "anthropic",
-            "model_name": "claude-haiku-4-5-20251001",
-        },
-        "librarian": {
-            "model_provider": "anthropic",
-            "model_name": "claude-haiku-4-5-20251001",
-        },
-        "semantic_recall": {
-            "model_provider": "anthropic",
-            "model_name": "claude-sonnet-4-6",
-        },
+    "semantic_recall": {
+        "model_provider": "anthropic",
+        "model_name": "claude-sonnet-4-6",
     },
 }
+
+
+def _normalize_agent_id(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    chars = [ch if ch.isalnum() else "-" for ch in raw]
+    normalized = "".join(chars).strip("-")
+    while "--" in normalized:
+        normalized = normalized.replace("--", "-")
+    return normalized or "aria"
+
+
+def _default_companion(agent_id: str = "aria") -> dict[str, Any]:
+    return {
+        "id": agent_id,
+        "agent_name": "Aria",
+        "agent_profile_image": "",
+        "additional_context": "",
+        "tools": copy.deepcopy(_DEFAULT_TOOLS),
+        "platform_awareness": copy.deepcopy(_DEFAULT_PLATFORM_AWARENESS),
+        "platform_bindings": copy.deepcopy(_DEFAULT_PLATFORM_BINDINGS),
+        "model_override": None,
+    }
+
+
+def _default_config_payload() -> dict[str, Any]:
+    agent_id = "aria"
+    return {
+        "default_agent_id": agent_id,
+        "command_center_name": "Command Center",
+        "agents": {agent_id: _default_companion(agent_id)},
+        "supporting_agents": copy.deepcopy(_DEFAULT_SUPPORTING_AGENTS),
+    }
+
+
+def _normalize_platform_awareness(raw: Any) -> dict[str, str]:
+    result = copy.deepcopy(_DEFAULT_PLATFORM_AWARENESS)
+    if isinstance(raw, dict):
+        for platform, text in raw.items():
+            if isinstance(platform, str) and isinstance(text, str) and text.strip():
+                result[platform] = text
+    elif isinstance(raw, str) and raw.strip():
+        result["discord"] = raw
+        result["command"] = raw
+    return result
+
+
+def _normalize_platform_bindings(raw: Any) -> dict[str, dict[str, Any]]:
+    result = copy.deepcopy(_DEFAULT_PLATFORM_BINDINGS)
+    if not isinstance(raw, dict):
+        return result
+    for platform, value in raw.items():
+        if isinstance(platform, str) and isinstance(value, dict):
+            merged = result.get(platform, {}).copy()
+            merged.update(value)
+            result[platform] = merged
+    return result
+
+
+def _normalize_companion(agent_id: str, raw: Any) -> dict[str, Any]:
+    result = _default_companion(agent_id)
+    if isinstance(raw, dict):
+        agent_name = raw.get("agent_name") or raw.get("name")
+        if isinstance(agent_name, str) and agent_name.strip():
+            result["agent_name"] = agent_name.strip()
+        profile = raw.get("agent_profile_image") or raw.get("profile_image")
+        if isinstance(profile, str):
+            result["agent_profile_image"] = profile
+        additional = raw.get("additional_context")
+        if isinstance(additional, str):
+            result["additional_context"] = additional
+        if isinstance(raw.get("tools"), dict):
+            merged_tools = copy.deepcopy(_DEFAULT_TOOLS)
+            merged_tools.update(raw["tools"])
+            result["tools"] = merged_tools
+        result["platform_awareness"] = _normalize_platform_awareness(raw.get("platform_awareness"))
+        result["platform_bindings"] = _normalize_platform_bindings(raw.get("platform_bindings"))
+        if "model_override" in raw:
+            result["model_override"] = raw.get("model_override")
+    return result
+
+
+def _legacy_to_registry(raw: dict[str, Any]) -> dict[str, Any]:
+    default_name = raw.get("agent_name", "Aria")
+    default_agent_id = _normalize_agent_id(raw.get("default_agent_id") or default_name)
+    if isinstance(raw.get("agents"), dict) and raw["agents"]:
+        agents: dict[str, Any] = {}
+        for key, value in raw["agents"].items():
+            if not isinstance(key, str):
+                continue
+            normalized_id = _normalize_agent_id(key)
+            agents[normalized_id] = _normalize_companion(normalized_id, value)
+        if default_agent_id not in agents:
+            default_agent_id = next(iter(agents))
+    else:
+        agent_payload = {
+            "agent_name": raw.get("agent_name"),
+            "agent_profile_image": raw.get("agent_profile_image"),
+            "additional_context": raw.get("additional_context"),
+            "tools": raw.get("tools"),
+            "platform_awareness": raw.get("platform_awareness"),
+            "platform_bindings": raw.get("platform_bindings"),
+            "model_override": raw.get("model_override"),
+        }
+        agents = {default_agent_id: _normalize_companion(default_agent_id, agent_payload)}
+
+    normalized = {
+        "default_agent_id": default_agent_id,
+        "command_center_name": raw.get("command_center_name", "Command Center"),
+        "agents": agents,
+        "supporting_agents": copy.deepcopy(_DEFAULT_SUPPORTING_AGENTS),
+    }
+    if isinstance(raw.get("supporting_agents"), dict):
+        normalized["supporting_agents"].update(raw["supporting_agents"])
+    return normalized
+
+
+def _apply_default_agent_compat_fields(cfg: dict[str, Any]) -> dict[str, Any]:
+    default_agent = get_companion_agent(cfg.get("default_agent_id"), cfg)
+    compat = copy.deepcopy(cfg)
+    compat["agent_name"] = default_agent.get("agent_name", "Agent")
+    compat["agent_profile_image"] = default_agent.get("agent_profile_image", "")
+    compat["additional_context"] = default_agent.get("additional_context", "")
+    compat["tools"] = copy.deepcopy(default_agent.get("tools", _DEFAULT_TOOLS))
+    compat["platform_awareness"] = copy.deepcopy(
+        default_agent.get("platform_awareness", _DEFAULT_PLATFORM_AWARENESS)
+    )
+    compat["platform_bindings"] = copy.deepcopy(
+        default_agent.get("platform_bindings", _DEFAULT_PLATFORM_BINDINGS)
+    )
+    return compat
 
 # ------------------------------------------------------------------ config cache
 
@@ -146,7 +287,7 @@ _agent_config_cache: dict[str, Any] | None = None
 
 
 def get_default_config() -> dict[str, Any]:
-    return copy.deepcopy(_DEFAULT_CONFIG)
+    return _apply_default_agent_compat_fields(_default_config_payload())
 
 
 def get_agent_config() -> dict[str, Any]:
@@ -156,8 +297,8 @@ def get_agent_config() -> dict[str, Any]:
     if _AGENT_CONFIG_PATH.exists():
         try:
             data: dict[str, Any] = json.loads(_AGENT_CONFIG_PATH.read_text(encoding="utf-8"))
-            _agent_config_cache = data
-            return data
+            _agent_config_cache = _apply_default_agent_compat_fields(_legacy_to_registry(data))
+            return _agent_config_cache
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("Failed to load agent_config.json: %s — using defaults", exc)
     _agent_config_cache = get_default_config()
@@ -177,6 +318,7 @@ class MessageContext:
     user_id: str
     channel_id: str
     display_name: str
+    agent_id: str = ""
     guild_id: int | None = None
     person_id: str = ""     # canonical person ID resolved from PersonMap; falls back to user_id
     sl_region: str | None = None
@@ -186,11 +328,12 @@ class MessageContext:
     sl_recent_locations: list[dict] = field(default_factory=list)
     sl_known_avatar: dict | None = None
     sl_relationship: str = ""
+    group_participants: list[dict] = field(default_factory=list)  # non-empty → group chat mode
 
 
 # ------------------------------------------------------------------ prompt assembly
 
-def _build_core_block(cfg: dict) -> str:
+def _build_core_block(cfg: dict[str, Any]) -> str:
     agent_name = cfg.get("agent_name", "Agent")
     parts = [f"You are {agent_name}."]
 
@@ -228,11 +371,103 @@ def get_default_identity() -> dict[str, str]:
     return dict(_DEFAULT_IDENTITY)
 
 
-def get_identity_files_meta() -> dict[str, int]:
+def get_default_agent_id(cfg: dict[str, Any] | None = None) -> str:
+    effective = cfg or get_agent_config()
+    default_agent_id = effective.get("default_agent_id")
+    if isinstance(default_agent_id, str) and default_agent_id.strip():
+        return _normalize_agent_id(default_agent_id)
+    agents = effective.get("agents")
+    if isinstance(agents, dict) and agents:
+        first_key = next(iter(agents))
+        return _normalize_agent_id(str(first_key))
+    return "aria"
+
+
+def get_companion_agent(agent_id: str | None = None, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    effective = cfg or get_agent_config()
+    agents_raw = effective.get("agents")
+    agents = cast(dict[str, Any], agents_raw if isinstance(agents_raw, dict) else {})
+    target_id = _normalize_agent_id(agent_id or get_default_agent_id(effective))
+    if target_id in agents:
+        return copy.deepcopy(_normalize_companion(target_id, agents[target_id]))
+    default_id = get_default_agent_id(effective)
+    if default_id in agents:
+        return copy.deepcopy(_normalize_companion(default_id, agents[default_id]))
+    return _default_companion(default_id)
+
+
+def list_companion_agents(
+    platform: str | None = None,
+    *,
+    selectable_only: bool = False,
+    cfg: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    effective = cfg or get_agent_config()
+    default_agent_id = get_default_agent_id(effective)
+    agents_raw = effective.get("agents")
+    agents = cast(dict[str, Any], agents_raw if isinstance(agents_raw, dict) else {})
+    result: list[dict[str, Any]] = []
+    for raw_id, payload in agents.items():
+        normalized = _normalize_companion(_normalize_agent_id(str(raw_id)), payload)
+        binding = normalized.get("platform_bindings", {}).get(platform, {}) if platform else {}
+        enabled = bool(binding.get("enabled", True))
+        selectable = bool(binding.get("selectable", True if platform == "command" else enabled))
+        if selectable_only and not selectable:
+            continue
+        result.append(
+            {
+                "id": normalized["id"],
+                "agent_name": normalized.get("agent_name", "Agent"),
+                "agent_profile_image": normalized.get("agent_profile_image", ""),
+                "enabled": enabled,
+                "selectable": selectable,
+                "is_default": normalized["id"] == default_agent_id,
+            }
+        )
+    result.sort(key=lambda item: (not item["is_default"], item["agent_name"].lower(), item["id"]))
+    return result
+
+
+def resolve_platform_agent_id(
+    platform: str,
+    requested_agent_id: str | None = None,
+    *,
+    require_selectable: bool = False,
+    cfg: dict[str, Any] | None = None,
+) -> str:
+    effective = cfg or get_agent_config()
+    default_agent_id = get_default_agent_id(effective)
+    agents = {item["id"]: item for item in list_companion_agents(platform, cfg=effective)}
+    if requested_agent_id:
+        requested = _normalize_agent_id(requested_agent_id)
+        selected = agents.get(requested)
+        if selected and selected["enabled"] and (selected["selectable"] or not require_selectable):
+            return requested
+    default_agent = agents.get(default_agent_id)
+    if default_agent and default_agent["enabled"] and (default_agent["selectable"] or not require_selectable):
+        return default_agent_id
+    for agent in agents.values():
+        if agent["enabled"] and (agent["selectable"] or not require_selectable):
+            return agent["id"]
+    return default_agent_id
+
+
+def get_agent_identity_dir(agent_id: str | None = None, cfg: dict[str, Any] | None = None) -> Path:
+    effective = cfg or get_agent_config()
+    resolved_id = _normalize_agent_id(agent_id or get_default_agent_id(effective))
+    agent_dir = _AGENTS_DIR / resolved_id / "identity"
+    if agent_dir.exists():
+        return agent_dir
+    if resolved_id == get_default_agent_id(effective):
+        return _IDENTITY_DIR
+    return agent_dir
+
+
+def get_identity_files_meta(agent_id: str | None = None) -> dict[str, int]:
     """Return {filename: char_count} for each identity file that exists."""
     result: dict[str, int] = {}
     for fname in ("agent.md", "soul.md", "user.md"):
-        path = _IDENTITY_DIR / fname
+        path = get_agent_identity_dir(agent_id) / fname
         if path.exists():
             try:
                 result[fname] = len(path.read_text(encoding="utf-8").strip())
@@ -241,11 +476,11 @@ def get_identity_files_meta() -> dict[str, int]:
     return result
 
 
-def get_identity_files_text() -> dict[str, str]:
+def get_identity_files_text(agent_id: str | None = None) -> dict[str, str]:
     """Return {filename: text} for each identity file that exists."""
     result: dict[str, str] = {}
     for fname in ("agent.md", "soul.md", "user.md"):
-        path = _IDENTITY_DIR / fname
+        path = get_agent_identity_dir(agent_id) / fname
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8").strip()
@@ -256,18 +491,20 @@ def get_identity_files_text() -> dict[str, str]:
     return result
 
 
-def _load_identity_files() -> str:
+def _load_identity_files(agent_id: str | None = None) -> str:
     """Load agent.md, soul.md, user.md from data/identity/.
 
     Returns combined text with agent name header.
     Falls back to _build_core_block(cfg) if no files exist.
     """
-    cfg = get_agent_config()
-    agent_name = cfg.get("agent_name", "Agent")
+    root_cfg = get_agent_config()
+    companion_cfg = get_companion_agent(agent_id, root_cfg)
+    agent_name = companion_cfg.get("agent_name", "Agent")
+    identity_dir = get_agent_identity_dir(companion_cfg["id"], root_cfg)
 
     file_parts: list[str] = []
     for filename in ("agent.md", "soul.md", "user.md"):
-        path = _IDENTITY_DIR / filename
+        path = identity_dir / filename
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8").strip()
@@ -277,9 +514,51 @@ def _load_identity_files() -> str:
                 logger.warning("Failed to read %s: %s", path, exc)
 
     if not file_parts:
-        return _build_core_block(cfg)
+        return _build_core_block(companion_cfg)
 
     return "\n\n".join([f"You are {agent_name}."] + file_parts)
+
+
+def group_mention_tag(name: str) -> str:
+    """The canonical @mention token for a participant name (spaces removed)."""
+    return "@" + "".join(str(name or "").split())
+
+
+def _build_group_chat_block(participants: list[dict], self_id: str) -> str:
+    """Rule block injected for every agent in a command-center group chat.
+
+    Any companion entering the group inherits these rules via its system prompt.
+    """
+    if not participants:
+        return ""
+
+    user_lines: list[str] = []
+    agent_lines: list[str] = []
+    for p in participants:
+        name = str(p.get("name", "")).strip()
+        if not name:
+            continue
+        tag = group_mention_tag(name)
+        if p.get("type") == "user":
+            user_lines.append(f"- {tag} ({name}) — the human user")
+        else:
+            marker = "  ← this is you" if p.get("id") == self_id else ""
+            agent_lines.append(f"- {tag} ({name}){marker}")
+
+    roster = "\n".join(user_lines + agent_lines)
+    return (
+        "## Group Chat Mode\n"
+        "You are in a group conversation with the human user and other AI companions. "
+        "Incoming messages are labeled with the speaker, e.g. `@Name: ...`, so you always know who said what.\n\n"
+        f"**Participants:**\n{roster}\n\n"
+        "**Rules every participant follows:**\n"
+        "1. Address replies directly, like Discord @mentions. Begin your message with the @mention of whoever you are replying to — a companion or the user.\n"
+        "2. Every message MUST include either an @mention or the explicit name of the participant you are responding to. No exceptions.\n"
+        "3. Naming or @mentioning another participant signals that you expect them to respond. Only name someone if you actually want them to engage.\n"
+        "4. To bring another companion into the conversation, @mention them by name. To reply to the user, @mention the user.\n"
+        "5. Speak only as yourself. Never write another participant's message or answer on their behalf.\n"
+        "6. Stay in character, and keep messages conversational and concise."
+    )
 
 
 def _get_platform_awareness(cfg: dict[str, Any], platform: str) -> str:
@@ -319,16 +598,28 @@ def build_system_prompt_blocks(
     Block 1 (dynamic, no cache): STM bridge + SL sensor context + recent locations.
     Block 2 (uncached, optional): always-on library modules — separate to preserve Block 0 cache.
     """
-    cfg = get_agent_config()
+    root_cfg = get_agent_config()
+    agent_id = resolve_platform_agent_id(
+        context.platform,
+        context.agent_id,
+        require_selectable=context.platform == "command",
+        cfg=root_cfg,
+    )
+    companion_cfg = get_companion_agent(agent_id, root_cfg)
 
-    static_parts: list[str] = [_load_identity_files()]
+    static_parts: list[str] = [_load_identity_files(agent_id)]
 
-    platform_awareness: str = _get_platform_awareness(cfg, context.platform)
+    platform_awareness: str = _get_platform_awareness(companion_cfg, context.platform)
     if platform_awareness:
         static_parts.append(platform_awareness)
 
-    if cfg.get("additional_context"):
-        static_parts.append(f"## Additional Context\n{cfg['additional_context']}")
+    if context.group_participants:
+        group_block = _build_group_chat_block(context.group_participants, companion_cfg["id"])
+        if group_block:
+            static_parts.append(group_block)
+
+    if companion_cfg.get("additional_context"):
+        static_parts.append(f"## Additional Context\n{companion_cfg['additional_context']}")
 
     if memory_files:
         static_parts.append(memory_files)

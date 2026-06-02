@@ -12,6 +12,7 @@ _SCHEMA_STMTS = [
     """
     CREATE TABLE IF NOT EXISTS sessions (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id     TEXT NOT NULL DEFAULT '',
         user_id      TEXT NOT NULL,
         channel_id   TEXT NOT NULL,
         platform     TEXT NOT NULL,
@@ -58,12 +59,16 @@ _MIGRATE_IMPORTANCE_STMTS = [
     "ALTER TABLE sessions ADD COLUMN importance REAL NOT NULL DEFAULT -1.0",
 ]
 
+_MIGRATE_AGENT_ID_STMTS = [
+    "ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''",
+]
+
 _SEARCH_SQL = """
-SELECT s.platform, s.channel_id, s.timestamp, s.role, s.user_id, s.display_name,
+SELECT s.agent_id, s.platform, s.channel_id, s.timestamp, s.role, s.user_id, s.display_name,
        snippet(sessions_fts, 0, '[', ']', '…', 20) AS snippet
 FROM sessions_fts
 JOIN sessions s ON s.id = sessions_fts.rowid
-WHERE sessions_fts MATCH ?
+WHERE sessions_fts MATCH ? AND s.agent_id = ?
 ORDER BY rank
 LIMIT ?
 """
@@ -113,6 +118,15 @@ class SessionIndex:
                             logger.warning("Importance migration step failed (may be harmless): %s", exc)
                     await db.commit()
 
+                if "agent_id" not in cols:
+                    logger.info("SessionIndex: migrating sessions.db to add agent_id column")
+                    for stmt in _MIGRATE_AGENT_ID_STMTS:
+                        try:
+                            await db.execute(stmt)
+                        except Exception as exc:
+                            logger.warning("agent_id migration step failed (may be harmless): %s", exc)
+                    await db.commit()
+
             self._ready = True
 
     async def index_turn(
@@ -124,6 +138,7 @@ class SessionIndex:
         content: str,
         timestamp: str,
         display_name: str = "",
+        agent_id: str = "",
     ) -> int | None:
         """Index a conversation turn. Returns the inserted row id, or None on error."""
         if not content or not content.strip():
@@ -133,9 +148,9 @@ class SessionIndex:
             async with aiosqlite.connect(self._db_path) as db:
                 cursor = await db.execute(
                     "INSERT INTO sessions "
-                    "(user_id, channel_id, platform, role, content, timestamp, display_name) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (user_id, channel_id, platform, role, content[:4000], timestamp, display_name),
+                    "(agent_id, user_id, channel_id, platform, role, content, timestamp, display_name) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (agent_id, user_id, channel_id, platform, role, content[:4000], timestamp, display_name),
                 )
                 await db.commit()
                 return cursor.lastrowid
@@ -165,6 +180,19 @@ class SessionIndex:
         except Exception as exc:
             logger.warning("SessionIndex.backfill_display_names failed: %s", exc)
 
+    async def backfill_agent_ids(self, default_agent_id: str) -> None:
+        await self._ensure_ready()
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute(
+                    "UPDATE sessions SET agent_id = ? WHERE agent_id = ''",
+                    (default_agent_id,),
+                )
+                await db.commit()
+            logger.info("SessionIndex: backfilled default agent_id '%s'", default_agent_id)
+        except Exception as exc:
+            logger.warning("SessionIndex.backfill_agent_ids failed: %s", exc)
+
     async def set_importance(self, session_id: int, score: float) -> None:
         """Set the importance score for a single session row."""
         await self.set_importance_batch({session_id: score})
@@ -186,16 +214,16 @@ class SessionIndex:
         except Exception as exc:
             logger.warning("SessionIndex.set_importance_batch failed: %s", exc)
 
-    async def get_unscored_turns(self, user_id: str, limit: int = 200) -> list[dict]:
+    async def get_unscored_turns(self, user_id: str, limit: int = 200, *, agent_id: str = "") -> list[dict]:
         """Return turns with importance == -1.0 (not yet scored) for a user."""
         await self._ensure_ready()
         try:
             async with aiosqlite.connect(self._db_path) as db:
                 db.row_factory = aiosqlite.Row
                 async with db.execute(
-                    "SELECT id, user_id, role, content, timestamp, platform FROM sessions "
-                    "WHERE user_id = ? AND importance = -1.0 ORDER BY id ASC LIMIT ?",
-                    (user_id, limit),
+                    "SELECT id, agent_id, user_id, role, content, timestamp, platform FROM sessions "
+                    "WHERE user_id = ? AND agent_id = ? AND importance = -1.0 ORDER BY id ASC LIMIT ?",
+                    (user_id, agent_id, limit),
                 ) as cur:
                     rows = await cur.fetchall()
             return [dict(r) for r in rows]
@@ -203,7 +231,7 @@ class SessionIndex:
             logger.warning("SessionIndex.get_unscored_turns failed: %s", exc)
             return []
 
-    async def get_interaction_stats(self, user_id: str) -> dict:
+    async def get_interaction_stats(self, user_id: str, *, agent_id: str = "") -> dict:
         """Return visit frequency stats for a user.
 
         Uses distinct calendar days as the visit unit — one long argument and one
@@ -225,9 +253,9 @@ class SessionIndex:
                         MAX(timestamp)                                               AS last_seen,
                         CAST(julianday('now') - julianday(MAX(timestamp)) AS INTEGER) AS days_since_last
                     FROM sessions
-                    WHERE user_id = ? AND role = 'user'
+                    WHERE user_id = ? AND agent_id = ? AND role = 'user'
                     """,
-                    (user_id,),
+                    (user_id, agent_id),
                 ) as cur:
                     row = await cur.fetchone()
             if row and row["distinct_days"]:
@@ -238,7 +266,11 @@ class SessionIndex:
             return {}
 
     async def get_high_importance_turns(
-        self, user_id: str, threshold: float = 0.6
+        self,
+        user_id: str,
+        threshold: float = 0.6,
+        *,
+        agent_id: str = "",
     ) -> list[dict]:
         """Return turns with importance >= threshold for a user."""
         await self._ensure_ready()
@@ -246,9 +278,9 @@ class SessionIndex:
             async with aiosqlite.connect(self._db_path) as db:
                 db.row_factory = aiosqlite.Row
                 async with db.execute(
-                    "SELECT id, user_id, role, content, timestamp, platform, importance "
-                    "FROM sessions WHERE user_id = ? AND importance >= ? ORDER BY timestamp ASC",
-                    (user_id, threshold),
+                    "SELECT id, agent_id, user_id, role, content, timestamp, platform, importance "
+                    "FROM sessions WHERE user_id = ? AND agent_id = ? AND importance >= ? ORDER BY timestamp ASC",
+                    (user_id, agent_id, threshold),
                 ) as cur:
                     rows = await cur.fetchall()
             return [dict(r) for r in rows]
@@ -265,6 +297,7 @@ class SessionIndex:
         include_names: list[str] | None = None,
         exclude_names: list[str] | None = None,
         limit: int = 20,
+        agent_id: str = "",
     ) -> list[dict]:
         """Structured query against sessions table.
 
@@ -280,6 +313,9 @@ class SessionIndex:
         # Reusable date/platform filter fragments
         time_parts: list[str] = []
         time_params: list = []
+        if agent_id:
+            time_parts.append("agent_id = ?")
+            time_params.append(agent_id)
         if date_from:
             time_parts.append("timestamp >= ?")
             time_params.append(date_from)
@@ -357,12 +393,12 @@ class SessionIndex:
             logger.warning("SessionIndex.query failed: %s", exc)
             return []
 
-    async def search(self, query: str, limit: int = 5) -> list[dict]:
+    async def search(self, query: str, limit: int = 5, *, agent_id: str = "") -> list[dict]:
         await self._ensure_ready()
         try:
             async with aiosqlite.connect(self._db_path) as db:
                 db.row_factory = aiosqlite.Row
-                async with db.execute(_SEARCH_SQL, (query, limit)) as cur:
+                async with db.execute(_SEARCH_SQL, (query, agent_id, limit)) as cur:
                     rows = await cur.fetchall()
             return [dict(r) for r in rows]
         except Exception as exc:

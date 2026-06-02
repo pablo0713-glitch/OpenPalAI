@@ -26,6 +26,15 @@
 
       <section class="status-card">
         <p class="eyebrow">Runtime</p>
+        <label class="agent-selector-field" for="agent-selector">
+          <span>Active Companion</span>
+          <select id="agent-selector" aria-label="Active companion"></select>
+        </label>
+        <label class="checkbox-row compact-checkbox group-mode-row">
+          <input id="group-mode-toggle" type="checkbox">
+          <span>Group chat</span>
+        </label>
+        <div id="group-members" class="group-members hidden" aria-label="Group participants"></div>
         <div class="status-row"><span>Name</span><strong id="agent-name">Loading…</strong></div>
         <div class="runtime-profile hidden" id="runtime-profile">
           <img class="runtime-profile-image" id="runtime-profile-image" alt="Agent profile image">

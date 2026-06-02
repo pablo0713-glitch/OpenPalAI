@@ -20,7 +20,7 @@ async def handle_session_search(
     if not query:
         return "query is required."
 
-    rows = await session_index.search(query, limit)
+    rows = await session_index.search(query, limit, agent_id=context.agent_id)
 
     if not rows:
         return "No matching sessions found."

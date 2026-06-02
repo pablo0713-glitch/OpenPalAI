@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from config.settings import Settings
 from core.agent import AgentCore
 from core.persona import MessageContext
-from core.persona import get_agent_config
+from core.persona import get_companion_agent, resolve_platform_agent_id
 from interfaces.sl_bridge.formatters import cap_reply
 from interfaces.sl_bridge.sensor_store import SensorStore
 from memory.avatar_store import AvatarStore
@@ -126,8 +126,9 @@ def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStor
                 known_avatar = {**known_avatar, "sl_uuid": payload.user_id}
 
         relationship = ""
+        active_agent_id = resolve_platform_agent_id("sl")
         if session_index:
-            stats = await session_index.get_interaction_stats(sl_user_id)
+            stats = await session_index.get_interaction_stats(sl_user_id, agent_id=active_agent_id)
             relationship = _format_relationship(stats, payload.display_name)
 
         context = MessageContext(
@@ -135,6 +136,7 @@ def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStor
             user_id=sl_user_id,
             channel_id=f"sl_{payload.channel}",
             display_name=payload.display_name,
+            agent_id=active_agent_id,
             sl_region=payload.region,
             sl_client=payload.client,
             sl_sensor_context=sensor_ctx,
@@ -192,7 +194,7 @@ def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStor
         if settings.sl_bridge_secret and secret != settings.sl_bridge_secret:
             return {"status": "unauthorized", "reply": ""}
 
-        cfg_tools = get_agent_config().get("tools", {})
+        cfg_tools = get_companion_agent(resolve_platform_agent_id("sl")).get("tools", {})
         if not cfg_tools.get("voice", False):
             return {
                 "status": "stub",

@@ -6,7 +6,7 @@ import discord
 
 from config.settings import Settings
 from core.agent import AgentCore
-from core.persona import MessageContext
+from core.persona import MessageContext, resolve_platform_agent_id
 from interfaces.discord_bot.formatters import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ class TrixxieBot(discord.Client):
             user_id=f"discord_{message.author.id}",
             channel_id=f"discord_{message.channel.id}",
             display_name=message.author.display_name,
+            agent_id=resolve_platform_agent_id("discord"),
             guild_id=message.guild.id if message.guild else None,
         )
 

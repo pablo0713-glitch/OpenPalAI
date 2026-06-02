@@ -5,6 +5,8 @@ import io
 import json
 import mimetypes
 import re
+import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +16,15 @@ from pydantic import BaseModel
 
 from config.settings import Settings
 from core.agent import AgentCore
-from core.persona import MessageContext, get_agent_config
+from core.persona import (
+    MessageContext,
+    _normalize_agent_id,
+    get_agent_config,
+    get_companion_agent,
+    get_default_agent_id,
+    list_companion_agents,
+    resolve_platform_agent_id,
+)
 from memory.library_store import LibraryStore
 
 _ROOT = Path(__file__).parent.parent
@@ -89,16 +99,21 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @router.get("/command/status")
-    async def command_status() -> JSONResponse:
+    async def command_status(agent_id: str = "") -> JSONResponse:
         cfg = get_agent_config()
+        active_agent_id = resolve_platform_agent_id("command", agent_id, require_selectable=True, cfg=cfg)
+        agent_cfg = get_companion_agent(active_agent_id, cfg)
         model_name = settings.claude_model if settings.model_provider == "anthropic" else (
             settings.ollama_model if settings.model_provider == "ollama" else settings.openai_model
         )
         return JSONResponse(
             {
-                "agent_name": cfg.get("agent_name", "Agent"),
+                "agent_id": active_agent_id,
+                "default_agent_id": get_default_agent_id(cfg),
+                "agent_name": agent_cfg.get("agent_name", "Agent"),
                 "command_center_name": cfg.get("command_center_name", "Command Center"),
-                "agent_profile_image": cfg.get("agent_profile_image", ""),
+                "agent_profile_image": agent_cfg.get("agent_profile_image", ""),
+                "agents": list_companion_agents("command", selectable_only=True, cfg=cfg),
                 "model_provider": settings.model_provider,
                 "model_name": model_name,
                 "uploads": {
@@ -117,12 +132,15 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         conversation_id: str = Form("default"),
         command_user_id: str = Form(""),
         display_name: str = Form(""),
+        agent_id: str = Form(""),
         files: list[UploadFile] | None = File(default=None),
     ) -> JSONResponse:
         cleaned_message = message.strip()
         cleaned_conversation_id = _command_channel_id(conversation_id)
         cleaned_command_user_id = _command_user_id(command_user_id)
         cfg = get_agent_config()
+        selected_agent_id = resolve_platform_agent_id("command", agent_id, require_selectable=True, cfg=cfg)
+        agent_cfg = get_companion_agent(selected_agent_id, cfg)
         cleaned_display_name = display_name.strip() or cfg.get("command_center_name", "Command Center")
         uploads = files or []
 
@@ -139,12 +157,16 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
             user_id=cleaned_command_user_id,
             channel_id=cleaned_conversation_id,
             display_name=cleaned_display_name,
+            agent_id=selected_agent_id,
         )
         response = await agent.handle_message(content, context)
 
         return JSONResponse(
             {
                 "ok": True,
+                "agent_id": selected_agent_id,
+                "agent_name": agent_cfg.get("agent_name", "Agent"),
+                "agent_profile_image": agent_cfg.get("agent_profile_image", ""),
                 "conversation_id": cleaned_conversation_id,
                 "reply": response.text,
                 "attachments": attachments,
@@ -157,17 +179,88 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
     async def command_history(
         conversation_id: str,
         command_user_id: str,
+        agent_id: str = "",
     ) -> JSONResponse:
         cleaned_conversation_id = _command_channel_id(conversation_id)
         cleaned_command_user_id = _command_user_id(command_user_id)
-        history = await agent.get_conversation_history(cleaned_command_user_id, cleaned_conversation_id)
+        cfg = get_agent_config()
+        selected_agent_id = resolve_platform_agent_id("command", agent_id, require_selectable=True, cfg=cfg)
+        agent_cfg = get_companion_agent(selected_agent_id, cfg)
+        history = await agent.get_conversation_history(
+            cleaned_command_user_id,
+            cleaned_conversation_id,
+            agent_id=selected_agent_id,
+        )
         return JSONResponse(
             {
                 "ok": True,
+                "agent_id": selected_agent_id,
+                "agent_name": agent_cfg.get("agent_name", "Agent"),
                 "conversation_id": cleaned_conversation_id,
                 "command_user_id": cleaned_command_user_id,
                 "messages": history,
             }
+        )
+
+    @router.post("/command/group-chat")
+    async def command_group_chat(
+        message: str = Form(""),
+        conversation_id: str = Form("default"),
+        command_user_id: str = Form(""),
+        display_name: str = Form(""),
+        agent_ids: str = Form(""),
+    ) -> JSONResponse:
+        cleaned_message = message.strip()
+        if not cleaned_message:
+            return JSONResponse({"ok": False, "error": "Message required."}, status_code=400)
+
+        cleaned_user_id = _command_user_id(command_user_id)
+        group_channel_id = _command_group_channel_id(conversation_id)
+        cfg = get_agent_config()
+        user_name = display_name.strip() or cfg.get("command_center_name", "Command Center")
+
+        selectable = list_companion_agents("command", selectable_only=True, cfg=cfg)
+        selectable_ids = {a["id"] for a in selectable}
+        requested = [_normalize_agent_id(a) for a in agent_ids.split(",") if a.strip()]
+        group_ids: list[str] = []
+        seen: set[str] = set()
+        for aid in requested:
+            if aid in selectable_ids and aid not in seen:
+                seen.add(aid)
+                group_ids.append(aid)
+        if not group_ids:
+            group_ids = [a["id"] for a in selectable]
+        if len(group_ids) < 1:
+            return JSONResponse({"ok": False, "error": "No companions available for group chat."}, status_code=400)
+
+        agents = [get_companion_agent(aid, cfg) for aid in group_ids]
+        replies = await _orchestrate_group_chat(
+            agent, cleaned_message, agents, user_name, cleaned_user_id, group_channel_id,
+        )
+        return JSONResponse(
+            {"ok": True, "conversation_id": group_channel_id, "replies": replies}
+        )
+
+    @router.get("/command/group-history")
+    async def command_group_history(
+        conversation_id: str,
+        command_user_id: str,
+    ) -> JSONResponse:
+        cleaned_user_id = _command_user_id(command_user_id)
+        group_channel_id = _command_group_channel_id(conversation_id)
+        transcript, _ = _load_group(_group_path(cleaned_user_id, group_channel_id))
+        messages = [
+            {
+                "role": "user" if entry.get("type") == "user" else "agent",
+                "agent_id": entry.get("agent_id", ""),
+                "name": entry.get("name", ""),
+                "agent_profile_image": entry.get("profile_image", ""),
+                "text": entry.get("text", ""),
+            }
+            for entry in transcript
+        ]
+        return JSONResponse(
+            {"ok": True, "conversation_id": group_channel_id, "messages": messages}
         )
 
     @router.post("/command/library-upload")
@@ -603,3 +696,179 @@ def _command_user_id(value: str) -> str:
 def _command_channel_id(value: str) -> str:
     cleaned = _clean_fragment(value, fallback="default")
     return f"command_chat_{cleaned}"
+
+
+# ------------------------------------------------------------------ group chat
+
+_GROUPS_DIR = _ROOT / "data" / "memory" / "groups"
+_GROUP_MAX_TURNS = 8          # hard cap on agent turns per user message (runaway guard)
+_GROUP_MAX_PER_AGENT = 2      # an agent may speak at most twice per user message
+_GROUP_TRANSCRIPT_CAP = 200   # entries retained in the shared transcript file
+
+
+def _command_group_channel_id(value: str) -> str:
+    cleaned = _clean_fragment(value, fallback="default")
+    return f"command_group_{cleaned}"
+
+
+def _group_path(user_id: str, channel_id: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", f"{user_id}__{channel_id}")
+    return _GROUPS_DIR / f"{safe}.json"
+
+
+def _load_group(path: Path) -> tuple[list[dict], dict[str, int]]:
+    if not path.exists():
+        return [], {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [], {}
+    if not isinstance(data, dict):
+        return [], {}
+    transcript = data.get("transcript")
+    cursors = data.get("cursors")
+    return (
+        transcript if isinstance(transcript, list) else [],
+        cursors if isinstance(cursors, dict) else {},
+    )
+
+
+def _save_group(path: Path, transcript: list[dict], cursors: dict[str, int]) -> None:
+    if len(transcript) > _GROUP_TRANSCRIPT_CAP:
+        drop = len(transcript) - _GROUP_TRANSCRIPT_CAP
+        transcript = transcript[drop:]
+        cursors = {k: max(0, v - drop) for k, v in cursors.items()}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"transcript": transcript, "cursors": cursors}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _agent_aliases(name: str) -> set[str]:
+    """Tokens that count as mentioning a companion: full name, @name forms, bare first name."""
+    aliases: set[str] = set()
+    low = str(name or "").strip().lower()
+    if not low:
+        return aliases
+    aliases.add(low)                          # full name (may contain spaces)
+    aliases.add("@" + "".join(low.split()))   # @fullnamenospace
+    first = low.split()[0]
+    aliases.add("@" + first)                  # @first
+    if len(first) >= 3:
+        aliases.add(first)                    # bare first name
+    return aliases
+
+
+def _agent_mention_ids(text: str, agents: list[dict], exclude_id: str = "") -> list[str]:
+    """Return the ids of companions named or @mentioned in text (speaker excluded)."""
+    hay = text.lower()
+    tokens = set(re.findall(r"@?[a-z0-9]+", hay))
+    found: list[str] = []
+    for a in agents:
+        aid = a["id"]
+        if aid == exclude_id:
+            continue
+        for alias in _agent_aliases(a.get("agent_name", "")):
+            hit = (
+                bool(re.search(r"\b" + re.escape(alias) + r"\b", hay))
+                if " " in alias
+                else alias in tokens
+            )
+            if hit:
+                found.append(aid)
+                break
+    return found
+
+
+async def _orchestrate_group_chat(
+    agent: AgentCore,
+    message: str,
+    agents: list[dict],
+    user_name: str,
+    user_id: str,
+    channel_id: str,
+) -> list[dict]:
+    """Run one user message through the group: mention-routing + cascade.
+
+    Each responder is fed the labeled transcript delta it has not yet seen and
+    answered through the normal per-agent pipeline (so group turns persist into
+    each companion's own agent-scoped history and feed its long-term memory).
+    """
+    path = _group_path(user_id, channel_id)
+    transcript, cursors = _load_group(path)
+
+    participants_for_prompt = [{"id": user_id, "name": user_name, "type": "user"}] + [
+        {"id": a["id"], "name": a.get("agent_name", "Agent"), "type": "agent"} for a in agents
+    ]
+    agent_by_id = {a["id"]: a for a in agents}
+
+    transcript.append(
+        {
+            "speaker_id": user_id,
+            "name": user_name,
+            "type": "user",
+            "text": message,
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+    )
+
+    # When nobody is named, every companion answers once; otherwise only the named ones.
+    mentioned = _agent_mention_ids(message, agents)
+    queue: deque[str] = deque(mentioned or [a["id"] for a in agents])
+    per_agent: dict[str, int] = {a["id"]: 0 for a in agents}
+    replies: list[dict] = []
+    turns = 0
+
+    while queue and turns < _GROUP_MAX_TURNS:
+        rid = queue.popleft()
+        companion = agent_by_id.get(rid)
+        if companion is None or per_agent[rid] >= _GROUP_MAX_PER_AGENT:
+            continue
+
+        start = cursors.get(rid, 0)
+        delta = [e for e in transcript[start:] if e.get("speaker_id") != rid]
+        cursors[rid] = len(transcript)
+        if not delta:
+            continue
+
+        delta_text = "\n".join(f"@{e.get('name', '')}: {e.get('text', '')}" for e in delta)
+        ctx = MessageContext(
+            platform="command",
+            user_id=user_id,
+            channel_id=channel_id,
+            display_name=user_name,
+            agent_id=rid,
+            group_participants=participants_for_prompt,
+        )
+        response = await agent.handle_message(delta_text, ctx, skip_rate_limit=True)
+        reply_text = (response.text or "").strip()
+        if not reply_text:
+            continue
+
+        name = companion.get("agent_name", "Agent")
+        image = companion.get("agent_profile_image", "")
+        transcript.append(
+            {
+                "speaker_id": rid,
+                "agent_id": rid,
+                "name": name,
+                "type": "agent",
+                "profile_image": image,
+                "text": reply_text,
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+        )
+        cursors[rid] = len(transcript)
+        replies.append(
+            {"agent_id": rid, "agent_name": name, "agent_profile_image": image, "text": reply_text}
+        )
+        per_agent[rid] += 1
+        turns += 1
+
+        for mid in _agent_mention_ids(reply_text, agents, exclude_id=rid):
+            if per_agent.get(mid, 0) < _GROUP_MAX_PER_AGENT and mid not in queue:
+                queue.append(mid)
+
+    _save_group(path, transcript, cursors)
+    return replies

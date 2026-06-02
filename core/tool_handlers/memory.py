@@ -76,16 +76,19 @@ def _scan_entry(text: str) -> str | None:
     return None
 
 
-def _memory_dir(memory_base: str, person_id: str) -> Path:
+def _memory_dir(memory_base: str, person_id: str, agent_id: str = "") -> Path:
     safe = person_id.replace("/", "_").replace(":", "_")
-    d = Path(memory_base) / safe
+    if agent_id:
+        d = Path(memory_base) / "agents" / agent_id.replace("/", "_").replace(":", "_") / safe
+    else:
+        d = Path(memory_base) / safe
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _file_path(memory_base: str, person_id: str, store: str) -> Path:
+def _file_path(memory_base: str, person_id: str, store: str, agent_id: str = "") -> Path:
     fname = "MEMORY.md" if store == "memory" else "USER.md"
-    return _memory_dir(memory_base, person_id) / fname
+    return _memory_dir(memory_base, person_id, agent_id) / fname
 
 
 def _cap_for(store: str) -> int:
@@ -168,7 +171,7 @@ async def handle_memory(
         return "Invalid store. Use 'memory' or 'user'."
 
     person_id = context.person_id or context.user_id
-    path = _file_path(memory_base, person_id, store)
+    path = _file_path(memory_base, person_id, store, context.agent_id)
     cap  = _cap_for(store)
 
     loop = asyncio.get_event_loop()

@@ -23,8 +23,9 @@ async def handle_semantic_recall(
             importance_threshold = None
 
     person_id = context.person_id or context.user_id
+    memory_namespace = f"{context.agent_id}::{person_id}" if context.agent_id else person_id
     return await recall_agent.recall(
-        person_id=person_id,
+        person_id=memory_namespace,
         query=query,
         n_results=limit,
         importance_threshold=importance_threshold,

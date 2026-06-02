@@ -13,7 +13,7 @@ from core.agent import AgentCore
 from core.librarian_agent import LibrarianAgent
 from core.memory_curator import MemoryCuratorAgent
 from core.model_adapter import create_adapter
-from core.persona import get_agent_config
+from core.persona import get_agent_config, get_default_agent_id
 from core.rate_limiter import RateLimiter
 from core.recall_agent import SemanticRecallAgent
 from core.supporting_agent import make_supporting_adapter
@@ -59,7 +59,7 @@ async def _backfill_vector_store(
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT id, user_id, channel_id, platform, role, content, "
+                "SELECT id, agent_id, user_id, channel_id, platform, role, content, "
                 "timestamp, display_name, importance FROM sessions ORDER BY id ASC"
             ) as cur:
                 batch = []
@@ -70,8 +70,12 @@ async def _backfill_vector_store(
                         for r in batch:
                             # Resolve person_id from PersonMap
                             pid = person_map.get_person_id(r["user_id"]) or r["user_id"]
-                            if not await vector_store.has_document(pid, r["id"]):
+                            memory_namespace = (
+                                f"{r['agent_id']}::{pid}" if r.get("agent_id") else pid
+                            )
+                            if not await vector_store.has_document(memory_namespace, r["id"]):
                                 meta = {
+                                    "agent_id": r.get("agent_id", ""),
                                     "user_id": r["user_id"],
                                     "channel_id": r["channel_id"],
                                     "platform": r["platform"],
@@ -80,7 +84,7 @@ async def _backfill_vector_store(
                                     "display_name": r["display_name"],
                                     "importance": float(r["importance"]),
                                 }
-                                await vector_store.add_turn(pid, r["id"], r["content"], meta)
+                                await vector_store.add_turn(memory_namespace, r["id"], r["content"], meta)
                         processed += len(batch)
                         if processed % 1000 == 0:
                             logger.info("Vector backfill: %d rows indexed", processed)
@@ -89,8 +93,10 @@ async def _backfill_vector_store(
                 # Final partial batch
                 for r in batch:
                     pid = person_map.get_person_id(r["user_id"]) or r["user_id"]
-                    if not await vector_store.has_document(pid, r["id"]):
+                    memory_namespace = f"{r['agent_id']}::{pid}" if r.get("agent_id") else pid
+                    if not await vector_store.has_document(memory_namespace, r["id"]):
                         meta = {
+                            "agent_id": r.get("agent_id", ""),
                             "user_id": r["user_id"],
                             "channel_id": r["channel_id"],
                             "platform": r["platform"],
@@ -99,7 +105,7 @@ async def _backfill_vector_store(
                             "display_name": r["display_name"],
                             "importance": float(r["importance"]),
                         }
-                        await vector_store.add_turn(pid, r["id"], r["content"], meta)
+                        await vector_store.add_turn(memory_namespace, r["id"], r["content"], meta)
                 processed += len(batch)
         if processed:
             logger.info("Vector backfill complete: %d rows processed", processed)
@@ -161,6 +167,7 @@ async def main() -> None:
     # Build per-agent adapters from agent_config.json["supporting_agents"]
     adapter = create_adapter(settings)
     agent_cfg = get_agent_config()
+    await session_index.backfill_agent_ids(get_default_agent_id(agent_cfg))
 
     curator_adapter = make_supporting_adapter(settings, agent_cfg, "memory_curator")
     curator = MemoryCuratorAgent(curator_adapter)

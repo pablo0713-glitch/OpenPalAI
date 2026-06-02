@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -19,12 +20,15 @@ _ROOT = Path(__file__).parent.parent
 _ENV_PATH = _ROOT / ".env"
 _CONFIG_PATH = _ROOT / "data" / "agent_config.json"
 _IDENTITY_DIR = _ROOT / "data" / "identity"
+_AGENTS_DIR = _ROOT / "data" / "agents"
+_MEMORY_AGENTS_DIR = _ROOT / "data" / "memory" / "agents"
 _SETUP_DIR = _ROOT / "setup"
 
 _PERSON_MAP_PATH = _ROOT / "data" / "person_map.json"
 _NOTES_DIR = _ROOT / "data" / "notes"
 _LIBRARY_DIR = _ROOT / "data" / "library"
 _CANONICAL_OWNER = "SL_Notes"
+_IDENTITY_FILES = ("agent.md", "soul.md", "user.md")
 
 _SENSITIVE_KEYS = {
     "ANTHROPIC_API_KEY",
@@ -46,6 +50,20 @@ class _ScriptUpdateBody(BaseModel):
     secret: str
     triggers: list[str]
     opensim: bool = False
+
+
+class _CompanionCreateBody(BaseModel):
+    agent_name: str = ""
+    id: str = ""
+
+
+class _LibraryWriteBody(BaseModel):
+    filename: str
+    content: str
+
+
+class _AgentsCfgBody(BaseModel):
+    supporting_agents: dict
 
 
 def _asset_version(path: Path) -> int:
@@ -173,7 +191,8 @@ def create_setup_router() -> APIRouter:
         agent_name = "Agent"
         if configured:
             try:
-                cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+                from core.persona import get_agent_config
+                cfg = get_agent_config()
                 agent_name = cfg.get("agent_name", "Agent")
             except Exception:
                 pass
@@ -186,27 +205,36 @@ def create_setup_router() -> APIRouter:
             if env_vals.get(key):
                 env_vals[key] = _MASK
 
-        agent_cfg: dict = {}
-        if _CONFIG_PATH.exists():
-            try:
-                agent_cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-
-        if not agent_cfg:
-            from core.persona import get_default_config
-            agent_cfg = get_default_config()
-
-        # Load identity files (agent.md, soul.md, user.md)
-        from core.persona import get_default_identity
+        from core.persona import (
+            get_agent_config,
+            get_agent_identity_dir,
+            get_default_agent_id,
+            get_default_config,
+            get_default_identity,
+        )
+        # Deepcopy so we never mutate the cached config when injecting identity.
+        base_cfg = get_agent_config() if _CONFIG_PATH.exists() else get_default_config()
+        agent_cfg = copy.deepcopy(base_cfg)
         defaults = get_default_identity()
-        identity: dict[str, str] = {}
-        for fname in ("agent.md", "soul.md", "user.md"):
-            key = fname.replace(".", "_")  # agent_md, soul_md, user_md
-            fpath = _IDENTITY_DIR / fname
-            identity[key] = fpath.read_text(encoding="utf-8") if fpath.exists() else ""
 
-        agent_cfg["identity"] = identity
+        def _load_identity(aid: str) -> dict[str, str]:
+            identity_dir = get_agent_identity_dir(aid, agent_cfg)
+            out: dict[str, str] = {}
+            for fname in _IDENTITY_FILES:
+                key = fname.replace(".", "_")  # agent_md, soul_md, user_md
+                fpath = identity_dir / fname
+                out[key] = fpath.read_text(encoding="utf-8") if fpath.exists() else defaults.get(fname, "")
+            return out
+
+        # Per-agent identity for the multi-companion wizard.
+        agents = agent_cfg.get("agents")
+        if isinstance(agents, dict):
+            for aid, comp in agents.items():
+                if isinstance(comp, dict):
+                    comp["identity"] = _load_identity(aid)
+
+        # Top-level identity kept for the default agent (back-compat).
+        agent_cfg["identity"] = _load_identity(get_default_agent_id(agent_cfg))
 
         return JSONResponse({"env": env_vals, "agent_config": agent_cfg})
 
@@ -217,23 +245,49 @@ def create_setup_router() -> APIRouter:
             env_updates = {k: v for k, v in body.env.items() if v != _MASK}
             _write_dotenv(env_updates)
 
-            # Write identity files (agent.md, soul.md, user.md) if provided
-            identity = body.agent_config.pop("identity", None)
-            if isinstance(identity, dict):
-                _IDENTITY_DIR.mkdir(parents=True, exist_ok=True)
-                from core.persona import get_default_identity
-                defaults = get_default_identity()
-                for fname in ("agent.md", "soul.md", "user.md"):
-                    key = fname.replace(".", "_")
-                    content = identity.get(key, "").strip()
-                    if not content:
-                        content = defaults.get(fname, "")
-                    (_IDENTITY_DIR / fname).write_text(content, encoding="utf-8")
+            from core.persona import get_agent_config, get_default_agent_id
+            agent_payload = dict(body.agent_config)
+
+            if isinstance(agent_payload.get("agents"), dict) and agent_payload["agents"]:
+                # Multi-companion registry payload (new wizard).
+                normalized_cfg, identities = _build_registry_from_payload(agent_payload)
+            else:
+                # Legacy single-agent payload — merge onto the current default companion.
+                identity = agent_payload.pop("identity", None)
+                current_cfg = get_agent_config()
+                default_agent_id = get_default_agent_id(current_cfg)
+                default_agent = current_cfg.get("agents", {}).get(default_agent_id, {})
+                updated_agent = {
+                    **default_agent,
+                    "id": default_agent_id,
+                    "agent_name": agent_payload.get("agent_name", default_agent.get("agent_name", "Agent")),
+                    "agent_profile_image": agent_payload.get("agent_profile_image", default_agent.get("agent_profile_image", "")),
+                    "additional_context": agent_payload.get("additional_context", default_agent.get("additional_context", "")),
+                    "tools": agent_payload.get("tools", default_agent.get("tools", {})),
+                    "platform_awareness": agent_payload.get("platform_awareness", default_agent.get("platform_awareness", {})),
+                    "platform_bindings": agent_payload.get("platform_bindings", default_agent.get("platform_bindings", {})),
+                    "model_override": agent_payload.get("model_override", default_agent.get("model_override")),
+                }
+                normalized_cfg = {
+                    "default_agent_id": default_agent_id,
+                    "command_center_name": agent_payload.get(
+                        "command_center_name",
+                        current_cfg.get("command_center_name", "Command Center"),
+                    ),
+                    "agents": {**current_cfg.get("agents", {}), default_agent_id: updated_agent},
+                    "supporting_agents": agent_payload.get(
+                        "supporting_agents",
+                        current_cfg.get("supporting_agents", {}),
+                    ),
+                }
+                identities = {default_agent_id: identity} if isinstance(identity, dict) else {}
+
+            _write_identities(normalized_cfg, identities)
 
             # Write agent_config.json
             _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
             _CONFIG_PATH.write_text(
-                json.dumps(body.agent_config, indent=2, ensure_ascii=False),
+                json.dumps(normalized_cfg, indent=2, ensure_ascii=False),
                 encoding="utf-8",
             )
 
@@ -288,10 +342,6 @@ def create_setup_router() -> APIRouter:
             "content": mod.content, "filename": mod.filename,
         })
 
-    class _LibraryWriteBody(BaseModel):
-        filename: str
-        content: str
-
     @router.post("/setup/library")
     async def library_write(body: _LibraryWriteBody) -> JSONResponse:
         filename = body.filename.strip()
@@ -322,35 +372,152 @@ def create_setup_router() -> APIRouter:
 
     @router.get("/setup/agents")
     async def agents_get() -> JSONResponse:
-        agent_cfg: dict = {}
-        if _CONFIG_PATH.exists():
-            try:
-                agent_cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        from core.persona import get_default_config
+        from core.persona import get_agent_config, get_default_config
+        agent_cfg = get_agent_config() if _CONFIG_PATH.exists() else {}
         defaults = get_default_config()
         supporting = agent_cfg.get("supporting_agents", defaults.get("supporting_agents", {}))
         return JSONResponse(supporting)
 
-    class _AgentsCfgBody(BaseModel):
-        supporting_agents: dict
-
     @router.post("/setup/agents")
     async def agents_save(body: _AgentsCfgBody) -> JSONResponse:
-        agent_cfg: dict = {}
-        if _CONFIG_PATH.exists():
-            try:
-                agent_cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+        from core.persona import get_agent_config
+        agent_cfg = get_agent_config() if _CONFIG_PATH.exists() else {}
         agent_cfg["supporting_agents"] = body.supporting_agents
         _CONFIG_PATH.write_text(json.dumps(agent_cfg, indent=2, ensure_ascii=False), encoding="utf-8")
         from core.persona import reload_agent_config
         reload_agent_config()
         return JSONResponse({"ok": True})
 
+    # ---- Companion CRUD -----------------------------------------------------
+
+    @router.post("/setup/companion")
+    async def create_companion(body: _CompanionCreateBody) -> JSONResponse:
+        from core.persona import (
+            _default_companion,
+            _normalize_agent_id,
+            get_agent_config,
+            reload_agent_config,
+        )
+        cfg = copy.deepcopy(get_agent_config())
+        agents = cfg.get("agents")
+        if not isinstance(agents, dict):
+            agents = {}
+            cfg["agents"] = agents
+
+        base = _normalize_agent_id(body.id or body.agent_name or "companion")
+        agent_id = base
+        suffix = 2
+        while agent_id in agents:
+            agent_id = f"{base}-{suffix}"
+            suffix += 1
+
+        companion = _default_companion(agent_id)
+        if body.agent_name.strip():
+            companion["agent_name"] = body.agent_name.strip()
+        agents[agent_id] = companion
+
+        _write_registry(cfg)
+        _write_identities(cfg, {agent_id: {}})  # seed default identity files
+        reload_agent_config()
+        return JSONResponse({"ok": True, "id": agent_id, "agent_name": companion["agent_name"]})
+
+    @router.delete("/setup/companion/{agent_id}")
+    async def delete_companion(agent_id: str) -> JSONResponse:
+        from core.persona import (
+            _normalize_agent_id,
+            get_agent_config,
+            get_default_agent_id,
+            reload_agent_config,
+        )
+        cfg = copy.deepcopy(get_agent_config())
+        agents = cfg.get("agents")
+        if not isinstance(agents, dict):
+            agents = {}
+        target = _normalize_agent_id(agent_id)
+        if target not in agents:
+            return JSONResponse({"ok": False, "error": f"Companion '{target}' not found."}, status_code=404)
+        if len(agents) <= 1:
+            return JSONResponse({"ok": False, "error": "Cannot delete the last companion."}, status_code=400)
+
+        del agents[target]
+        if _normalize_agent_id(str(cfg.get("default_agent_id"))) == target:
+            cfg["default_agent_id"] = next(iter(agents))
+
+        _write_registry(cfg)
+        for path in (_AGENTS_DIR / target, _MEMORY_AGENTS_DIR / target, _NOTES_DIR / target):
+            shutil.rmtree(path, ignore_errors=True)
+        reload_agent_config()
+        return JSONResponse({"ok": True, "default_agent_id": cfg["default_agent_id"]})
+
     return router
+
+
+# ------------------------------------------------------------------ companion helpers
+
+def _build_registry_from_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict]]:
+    """Normalize a multi-companion wizard payload into the registry written to disk.
+
+    Returns (registry, identities) where identities maps agent_id -> {agent_md, soul_md, user_md}.
+    Identity blocks are stripped from the stored companions (they live as files, not in JSON).
+    """
+    from core.persona import _normalize_agent_id
+
+    raw_agents = payload.get("agents") or {}
+    agents: dict[str, Any] = {}
+    identities: dict[str, dict] = {}
+    for raw_id, raw in raw_agents.items():
+        if not isinstance(raw, dict):
+            continue
+        aid = _normalize_agent_id(str(raw.get("id") or raw_id))
+        companion = {k: v for k, v in raw.items() if k != "identity"}
+        companion["id"] = aid
+        agents[aid] = companion
+        identity = raw.get("identity")
+        if isinstance(identity, dict):
+            identities[aid] = identity
+
+    first_id = next(iter(agents), "aria")
+    default_id = _normalize_agent_id(str(payload.get("default_agent_id") or first_id))
+    if default_id not in agents:
+        default_id = first_id
+
+    registry = {
+        "default_agent_id": default_id,
+        "command_center_name": payload.get("command_center_name", "Command Center"),
+        "agents": agents,
+        "supporting_agents": payload.get("supporting_agents", {}),
+    }
+    return registry, identities
+
+
+def _write_identities(registry: dict[str, Any], identities: dict[str, dict]) -> None:
+    """Write each agent's identity files to its per-agent dir; mirror the default to the legacy dir."""
+    from core.persona import get_default_identity
+
+    defaults = get_default_identity()
+    default_id = registry.get("default_agent_id")
+    for aid, identity in identities.items():
+        targets = [_AGENTS_DIR / aid / "identity"]
+        if aid == default_id:
+            targets.append(_IDENTITY_DIR)
+        for identity_dir in targets:
+            identity_dir.mkdir(parents=True, exist_ok=True)
+            for fname in _IDENTITY_FILES:
+                key = fname.replace(".", "_")
+                content = (identity.get(key) or "").strip() or defaults.get(fname, "")
+                (identity_dir / fname).write_text(content, encoding="utf-8")
+
+
+def _write_registry(cfg: dict[str, Any]) -> None:
+    """Write a clean registry (canonical keys only) to agent_config.json."""
+    clean = {
+        "default_agent_id": cfg.get("default_agent_id"),
+        "command_center_name": cfg.get("command_center_name", "Command Center"),
+        "agents": cfg.get("agents", {}),
+        "supporting_agents": cfg.get("supporting_agents", {}),
+    }
+    _CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CONFIG_PATH.write_text(json.dumps(clean, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 # ------------------------------------------------------------------ .env helpers

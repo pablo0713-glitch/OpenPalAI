@@ -242,6 +242,46 @@ label {
   text-transform: uppercase;
 }
 
+.agent-selector-field {
+  margin: 0 0 12px;
+}
+
+.agent-selector-field span {
+  font-size: 11px;
+}
+
+.group-mode-row {
+  margin: 12px 0 8px;
+  font-size: 12px;
+}
+
+.group-members {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.group-members .group-member {
+  padding: 6px 8px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+}
+
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 12px 14px;
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
 input,
 textarea {
   width: 100%;
@@ -253,6 +293,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--accent);

@@ -343,8 +343,13 @@ def make_adapter(
         )
 
     if provider in _LOCAL_PROVIDER_DEFAULTS:
-        base_url = settings.openai_base_url or _LOCAL_PROVIDER_DEFAULTS[provider]
-        model = model_name or (settings.ollama_model if provider == "ollama" else settings.openai_model)
+        # Ollama uses its own base-URL field; lm_studio uses the shared openai_base_url.
+        if provider == "ollama":
+            base_url = settings.ollama_base_url or _LOCAL_PROVIDER_DEFAULTS["ollama"]
+            model = model_name or settings.ollama_model
+        else:
+            base_url = settings.openai_base_url or _LOCAL_PROVIDER_DEFAULTS[provider]
+            model = model_name or settings.openai_model
         return OpenAICompatibleAdapter(
             base_url=base_url,
             model=model,

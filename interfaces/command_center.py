@@ -745,18 +745,21 @@ def _save_group(path: Path, transcript: list[dict], cursors: dict[str, int]) -> 
     )
 
 
-def _agent_aliases(name: str) -> set[str]:
-    """Tokens that count as mentioning a companion: full name, @name forms, bare first name."""
+def _agent_aliases(agent: dict) -> set[str]:
+    """Tokens that count as addressing a companion: its name and each configured
+    alias/nickname (like the LSL TRIGGER_NAMES), plus @name forms and bare first names."""
     aliases: set[str] = set()
-    low = str(name or "").strip().lower()
-    if not low:
-        return aliases
-    aliases.add(low)                          # full name (may contain spaces)
-    aliases.add("@" + "".join(low.split()))   # @fullnamenospace
-    first = low.split()[0]
-    aliases.add("@" + first)                  # @first
-    if len(first) >= 3:
-        aliases.add(first)                    # bare first name
+    names = [agent.get("agent_name", "")] + list(agent.get("aliases") or [])
+    for raw in names:
+        low = str(raw or "").strip().lower()
+        if not low:
+            continue
+        aliases.add(low)                          # full name/alias (may contain spaces)
+        aliases.add("@" + "".join(low.split()))   # @namenospace
+        first = low.split()[0]
+        aliases.add("@" + first)                  # @first
+        if len(first) >= 3:
+            aliases.add(first)                    # bare first token
     return aliases
 
 
@@ -769,7 +772,7 @@ def _agent_mention_ids(text: str, agents: list[dict], exclude_id: str = "") -> l
         aid = a["id"]
         if aid == exclude_id:
             continue
-        for alias in _agent_aliases(a.get("agent_name", "")):
+        for alias in _agent_aliases(a):
             hit = (
                 bool(re.search(r"\b" + re.escape(alias) + r"\b", hay))
                 if " " in alias
@@ -799,7 +802,13 @@ async def _orchestrate_group_chat(
     transcript, cursors = _load_group(path)
 
     participants_for_prompt = [{"id": user_id, "name": user_name, "type": "user"}] + [
-        {"id": a["id"], "name": a.get("agent_name", "Agent"), "type": "agent"} for a in agents
+        {
+            "id": a["id"],
+            "name": a.get("agent_name", "Agent"),
+            "type": "agent",
+            "aliases": a.get("aliases") or [],
+        }
+        for a in agents
     ]
     agent_by_id = {a["id"]: a for a in agents}
 

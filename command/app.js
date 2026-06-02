@@ -101,14 +101,14 @@ agentSelector.addEventListener('change', () => {
 
 groupModeToggle.checked = groupMode;
 if (groupMode) {
-  messageInput.placeholder = 'Message the group. @mention a companion to address it directly, or just talk to everyone.';
+  messageInput.placeholder = 'Message the group. Name a companion to address it directly, or just talk to everyone.';
 }
 groupModeToggle.addEventListener('change', () => {
   groupMode = groupModeToggle.checked;
   localStorage.setItem(groupModeKey, groupMode ? '1' : '0');
   groupMembersContainer.classList.toggle('hidden', !groupMode);
   messageInput.placeholder = groupMode
-    ? 'Message the group. @mention a companion to address it directly, or just talk to everyone.'
+    ? 'Message the group. Name a companion to address it directly, or just talk to everyone.'
     : 'Talk to the agent, or attach an image/document and ask a question about it.';
   void loadConversationHistory();
 });
@@ -325,7 +325,7 @@ async function sendGroupMessage() {
     }
     const replies = Array.isArray(data.replies) ? data.replies : [];
     if (!replies.length) {
-      appendMessage('agent', '(no companion responded — @mention one to address it directly)', [], { name: 'Group', avatar: '' });
+      appendMessage('agent', '(no companion responded — try naming one directly)', [], { name: 'Group', avatar: '' });
     }
     for (const reply of replies) {
       appendMessage('agent', reply.text || '(no reply)', [], {
@@ -356,10 +356,6 @@ async function loadGroupHistory() {
       throw new Error(data.error || 'Failed to load group history');
     }
     const messages = Array.isArray(data.messages) ? data.messages : [];
-    if (!messages.length) {
-      appendMessage('agent', 'Group chat ready. Your message goes to every selected companion; @mention one to address it directly. Companions @mention each other to keep the thread going.', [], { name: 'Group', avatar: '' });
-      return;
-    }
     for (const message of messages) {
       if (message.role === 'user') {
         appendMessage('user', message.text || '');
@@ -371,7 +367,7 @@ async function loadGroupHistory() {
       }
     }
   } catch {
-    appendMessage('agent', 'Group chat ready. Select companions in the sidebar and start talking.', [], { name: 'Group', avatar: '' });
+    /* leave the stream empty — group conduct lives in each companion's prompt, not a header */
   }
 }
 

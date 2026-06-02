@@ -63,7 +63,14 @@ _DEFAULT_PLATFORM_AWARENESS = {
         "- This is the primary surface for direct conversation with the user.\n"
         "- You can be selected explicitly, and the active companion can change between requests.\n"
         "- Keep replies natural and conversational, but you may be slightly more expansive than in-world IMs.\n"
-        "- You may use available tools and reference prior conversations tied to your own memory namespace."
+        "- You may use available tools and reference prior conversations tied to your own memory namespace.\n\n"
+        "### Group Chat Conduct\n"
+        "When other companions are present (group chat), incoming messages are labeled `@Name:` so you know who is speaking. Follow these rules:\n"
+        "- Address whoever you are replying to **by name** in your message — a plain first name or nickname is enough. An `@mention` is an optional fallback, never required.\n"
+        "- Every message must clearly include the name of the participant (a companion or the user) you are responding to.\n"
+        "- Saying a participant's name signals that you expect them to respond — only name someone when you actually want them to engage.\n"
+        "- Speak only as yourself. Never write another participant's message or answer on their behalf.\n"
+        "- Keep it conversational and concise, and stay in character."
     ),
     "discord": (
         "## Platform Awareness — Discord\n"
@@ -166,6 +173,7 @@ def _default_companion(agent_id: str = "aria") -> dict[str, Any]:
         "id": agent_id,
         "agent_name": "Aria",
         "agent_profile_image": "",
+        "aliases": [],
         "additional_context": "",
         "tools": copy.deepcopy(_DEFAULT_TOOLS),
         "platform_awareness": copy.deepcopy(_DEFAULT_PLATFORM_AWARENESS),
@@ -217,6 +225,9 @@ def _normalize_companion(agent_id: str, raw: Any) -> dict[str, Any]:
         profile = raw.get("agent_profile_image") or raw.get("profile_image")
         if isinstance(profile, str):
             result["agent_profile_image"] = profile
+        aliases = raw.get("aliases")
+        if isinstance(aliases, list):
+            result["aliases"] = [str(a).strip() for a in aliases if str(a).strip()]
         additional = raw.get("additional_context")
         if isinstance(additional, str):
             result["additional_context"] = additional
@@ -525,39 +536,35 @@ def group_mention_tag(name: str) -> str:
 
 
 def _build_group_chat_block(participants: list[dict], self_id: str) -> str:
-    """Rule block injected for every agent in a command-center group chat.
+    """Dynamic roster injected for every agent in a command-center group chat.
 
-    Any companion entering the group inherits these rules via its system prompt.
+    The behavioral rules live in the companion's editable `command` platform
+    awareness (so they can be customized per companion); this block only supplies
+    the live participant list — names, nicknames, and @mention tags.
     """
     if not participants:
         return ""
 
-    user_lines: list[str] = []
-    agent_lines: list[str] = []
-    for p in participants:
+    def _line(p: dict) -> str:
         name = str(p.get("name", "")).strip()
-        if not name:
-            continue
         tag = group_mention_tag(name)
+        aliases = [str(a).strip() for a in (p.get("aliases") or []) if str(a).strip()]
+        alias_str = f" — also answers to: {', '.join(aliases)}" if aliases else ""
         if p.get("type") == "user":
-            user_lines.append(f"- {tag} ({name}) — the human user")
-        else:
-            marker = "  ← this is you" if p.get("id") == self_id else ""
-            agent_lines.append(f"- {tag} ({name}){marker}")
+            return f"- {name} ({tag}){alias_str} — the human user"
+        marker = "  ← this is you" if p.get("id") == self_id else ""
+        return f"- {name} ({tag}){alias_str}{marker}"
 
+    user_lines = [_line(p) for p in participants if p.get("type") == "user" and str(p.get("name", "")).strip()]
+    agent_lines = [_line(p) for p in participants if p.get("type") != "user" and str(p.get("name", "")).strip()]
     roster = "\n".join(user_lines + agent_lines)
+
     return (
-        "## Group Chat Mode\n"
-        "You are in a group conversation with the human user and other AI companions. "
-        "Incoming messages are labeled with the speaker, e.g. `@Name: ...`, so you always know who said what.\n\n"
-        f"**Participants:**\n{roster}\n\n"
-        "**Rules every participant follows:**\n"
-        "1. Address replies directly, like Discord @mentions. Begin your message with the @mention of whoever you are replying to — a companion or the user.\n"
-        "2. Every message MUST include either an @mention or the explicit name of the participant you are responding to. No exceptions.\n"
-        "3. Naming or @mentioning another participant signals that you expect them to respond. Only name someone if you actually want them to engage.\n"
-        "4. To bring another companion into the conversation, @mention them by name. To reply to the user, @mention the user.\n"
-        "5. Speak only as yourself. Never write another participant's message or answer on their behalf.\n"
-        "6. Stay in character, and keep messages conversational and concise."
+        "## Group Chat — Who's Here\n"
+        "You are in a group conversation with the people below. Incoming messages are labeled `@Name:` "
+        "so you can tell who is speaking. Reply by naming whoever you are addressing — their name or "
+        "any nickname listed is enough.\n\n"
+        f"**Participants:**\n{roster}"
     )
 
 

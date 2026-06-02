@@ -613,9 +613,10 @@ Supporting agents are **not** full `AgentCore` instances. They cannot call tools
       "id": "aria",
       "agent_name": "Aria",
       "agent_profile_image": "",
+      "aliases": ["Ari", "Riri"],
       "additional_context": "",
       "tools": { "web_search": true, "notes": true, "sl_action": true, "voice": false },
-      "platform_awareness": { "command": "...", "discord": "...", "sl": "...", "opensim": "..." },
+      "platform_awareness": { "command": "...incl. group chat rules...", "discord": "...", "sl": "...", "opensim": "..." },
       "platform_bindings": { "command": {"enabled": true, "selectable": true}, "discord": {"default": true}, "sl": {"embodied": true} },
       "model_override": null
     }
@@ -641,7 +642,8 @@ Per-companion identity files live in `data/agents/{id}/identity/` (legacy `data/
 
 Multiple companions converse in one thread with Discord-style `@mention` routing. Orchestrated server-side in `interfaces/command_center.py`.
 
-- **Rules block** — `_build_group_chat_block()` in `core/persona.py` injects a `## Group Chat Mode` section into every participant's system prompt (triggered by `MessageContext.group_participants`). Incoming messages are labeled `@Name: ...`; replies must begin with an `@mention`; every message must name its addressee; naming a participant signals it to respond.
+- **Rules (editable) + roster (dynamic)** — the behavioral rules live in each companion's **`command` platform awareness** (`platform_awareness.command`, editable in wizard Step 6), so they can be customized per companion. `_build_group_chat_block()` in `core/persona.py` adds only the live participant roster (triggered by `MessageContext.group_participants`) — each participant's name, configured **aliases/nicknames**, and `@mention` tag, with the active companion marked "← this is you". Incoming messages are labeled `@Name: ...`. Addressing is **name-based**: a reply must include the name (or any alias) of whoever it answers; `@mention` is an optional fallback. Naming a participant signals it to respond.
+- **Aliases** — each companion has `aliases: []` (like the LSL `TRIGGER_NAMES`). `_agent_mention_ids()` matches a companion by its name **or** any alias (case-insensitive; `@name` forms and bare first names ≥3 chars), so being addressed by a nickname still pulls it in.
 
 - **Orchestration** — `_orchestrate_group_chat()`:
   1. Appends the user message to a shared transcript (`data/memory/groups/{user}__{channel}.json`).

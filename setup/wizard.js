@@ -36,6 +36,19 @@ const D = {
     'Edit this to describe yourself — your name, role, interests, communication style, ' +
     'and anything that helps the agent understand and serve you better.',
   platform_awareness: {
+    command:
+      "## Platform Awareness — Command Center\n" +
+      "- This is the primary surface for direct conversation with the user.\n" +
+      "- You can be selected explicitly, and the active companion can change between requests.\n" +
+      "- Keep replies natural and conversational, but you may be slightly more expansive than in-world IMs.\n" +
+      "- You may use available tools and reference prior conversations tied to your own memory namespace.\n\n" +
+      "### Group Chat Conduct\n" +
+      "When other companions are present (group chat), incoming messages are labeled `@Name:` so you know who is speaking. Follow these rules:\n" +
+      "- Address whoever you are replying to **by name** in your message — a plain first name or nickname is enough. An `@mention` is an optional fallback, never required.\n" +
+      "- Every message must clearly include the name of the participant (a companion or the user) you are responding to.\n" +
+      "- Saying a participant's name signals that you expect them to respond — only name someone when you actually want them to engage.\n" +
+      "- Speak only as yourself. Never write another participant's message or answer on their behalf.\n" +
+      "- Keep it conversational and concise, and stay in character.",
     discord:
       "## Platform Awareness — Discord\n" +
       "- You respond to @mentions, DMs, and messages in channels you're active in.\n" +
@@ -108,6 +121,7 @@ function blankCompanion(id, name) {
     id,
     agent_name: name || D.agent_name,
     agent_profile_image: '',
+    aliases: [],
     agent_md: D.agent_md,
     soul_md:  D.soul_md,
     user_md:  D.user_md,
@@ -116,6 +130,7 @@ function blankCompanion(id, name) {
     sl_action_enabled:  true,
     voice_enabled:      false,
     additional_context: '',
+    pa_command: D.platform_awareness.command,
     pa_discord: D.platform_awareness.discord,
     pa_sl:      D.platform_awareness.sl,
     pa_opensim: D.platform_awareness.opensim,
@@ -285,12 +300,14 @@ function applyConfig(config) {
       const cid = normalizeId(raw.id || rawId);
       const c = blankCompanion(cid, raw.agent_name || raw.name || cid);
       if (typeof raw.agent_profile_image === 'string') c.agent_profile_image = raw.agent_profile_image;
+      if (Array.isArray(raw.aliases)) c.aliases = raw.aliases.map((a) => String(a).trim()).filter(Boolean);
       if (typeof raw.additional_context === 'string')   c.additional_context  = raw.additional_context;
       const idf = (raw.identity && typeof raw.identity === 'object') ? raw.identity : {};
       if (idf.agent_md) c.agent_md = idf.agent_md;
       if (idf.soul_md)  c.soul_md  = idf.soul_md;
       if (idf.user_md)  c.user_md  = idf.user_md;
       const pa = (raw.platform_awareness && typeof raw.platform_awareness === 'object') ? raw.platform_awareness : {};
+      if (pa.command)  c.pa_command  = pa.command;
       if (pa.discord)  c.pa_discord  = pa.discord;
       if (pa.sl)       c.pa_sl       = pa.sl;
       if (pa.opensim)  c.pa_opensim  = pa.opensim;
@@ -496,6 +513,11 @@ function buildStep1() {
       You are <strong id="name-live">${esc(ac().agent_name) || 'your agent'}</strong>.
     </div>
     <div class="form-group" style="margin-top:1.5rem">
+      <label for="f-aliases">Aliases / Nicknames <span class="label-opt">(optional)</span></label>
+      <input type="text" id="f-aliases" class="form-input" value="${esc((ac().aliases || []).join(', '))}" placeholder="e.g. Ari, Riri" maxlength="120">
+      <p class="form-hint">Comma-separated. In command-center group chat, this companion also responds when addressed by any of these names — like the Second Life trigger names. Its main name always works.</p>
+    </div>
+    <div class="form-group" style="margin-top:1.5rem">
       <label for="f-profile-image">Profile Image <span class="label-opt">(optional)</span></label>
       <input type="file" id="f-profile-image" class="hidden" accept="image/*">
       <div class="profile-image-picker">
@@ -588,6 +610,7 @@ function bindStep1() {
 
 function collectStep1() {
   ac().agent_name          = val('f-name') || ac().agent_name;
+  ac().aliases             = val('f-aliases').split(',').map((a) => a.trim()).filter(Boolean);
   state.command_center_name = val('f-command-center-name') || 'Command Center';
   state.owner_sl_name      = val('f-owner-sl-name');
   state.owner_discord_name = val('f-owner-discord-name');
@@ -1111,6 +1134,12 @@ function collectStep5() {
 function buildStep6() {
   const c = ac();
   const paSections = [];
+  paSections.push(`
+    <div class="form-group">
+      <label for="f-pa-command">Platform Awareness — Command Center <span class="label-opt">(group chat rules live here)</span></label>
+      <textarea id="f-pa-command" class="form-textarea" rows="16">${esc(c.pa_command)}</textarea>
+      <p class="form-hint">Always active in the command center. The <strong>Group Chat Conduct</strong> section defines how this companion behaves with others — edit it to give this agent its own group-chat style. The live participant list (names + nicknames) is added automatically.</p>
+    </div>`);
   if (state.discord_enabled)
     paSections.push(`
     <div class="form-group">
@@ -1140,19 +1169,20 @@ function buildStep6() {
       <p class="form-hint">Free-form. Appended to the system prompt on every message.</p>
     </div>
 
-    ${paSections.length ? `
     <div style="margin-top:1.5rem">
       <div class="section-title" style="margin-bottom:0.75rem">Platform Awareness</div>
-      <p class="step-desc" style="margin-top:0;margin-bottom:1rem">Injected per platform — only enabled platforms appear. Describes what the agent can perceive, do, and how to behave.</p>
+      <p class="step-desc" style="margin-top:0;margin-bottom:1rem">Injected per platform. Command Center is always active; Second Life, Discord, and OpenSimulator appear when enabled in Step 3. Describes what the agent can perceive, do, and how to behave.</p>
       ${paSections.join('')}
-    </div>` : '<p class="text-dim" style="margin-top:1.5rem">Enable platforms in Step 3 to configure their awareness blocks here.</p>'}`;
+    </div>`;
 }
 
 function collectStep6() {
   ac().additional_context = val('f-extra');
+  const cmd = document.getElementById('f-pa-command');
   const d = document.getElementById('f-pa-discord');
   const s = document.getElementById('f-pa-sl');
   const o = document.getElementById('f-pa-opensim');
+  if (cmd) ac().pa_command = cmd.value;
   if (d) ac().pa_discord  = d.value;
   if (s) ac().pa_sl       = s.value;
   if (o) ac().pa_opensim  = o.value;
@@ -1417,6 +1447,7 @@ async function save() {
           id,
           agent_name: c.agent_name,
           agent_profile_image: c.agent_profile_image,
+          aliases: c.aliases || [],
           additional_context: c.additional_context,
           tools: {
             web_search: c.web_search_enabled,
@@ -1425,6 +1456,7 @@ async function save() {
             voice:      c.voice_enabled,
           },
           platform_awareness: {
+            command: c.pa_command,
             discord: c.pa_discord,
             sl:      c.pa_sl,
             opensim: c.pa_opensim,

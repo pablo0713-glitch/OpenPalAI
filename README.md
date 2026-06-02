@@ -24,7 +24,7 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 | **Library modules** | Drop-in reference documents (lore guides, setting rules, style notes) injected into context on demand or always-on |
 | **Supporting agents** | Specialist background agents (Memory Curator, Librarian, Semantic Recall) each with configurable provider and model |
 | **Multiple companions** | Create several distinct companion personas, each with its own identity, tools, and separate memory — switchable in the command center (Second Life and Discord use the default companion only) |
-| **Group chat** | Multiple companions converse in one command-center thread with Discord-style @mention routing — naming a companion pulls it into the conversation |
+| **Group chat** | Multiple companions converse in one command-center thread — name a companion (or a configured nickname) to pull it into the conversation; they address each other by name to keep it going |
 | **Command Center** | Unified web UI for chat, setup, debug, and library management at `/command` |
 | **Document uploads** | Browser chat accepts images, text-like files, PDF, and DOCX; library ingest turns documents into modules in `data/library` |
 
@@ -129,8 +129,9 @@ If you've defined more than one companion in the setup wizard, the command cente
 
 Flip on **Group chat** and pick which companions take part. Everyone shares one thread:
 
-- Address a companion by **@mention** or by name to talk to it directly; an un-addressed message goes to everyone.
-- Companions follow Discord-style rules — they reply with an `@mention`, and naming another companion pulls *that* one into the conversation, so the thread can develop on its own.
+- Address a companion **by name** — its full name or any nickname/alias you gave it in the wizard (an `@mention` also works, but isn't required). An un-addressed message goes to everyone.
+- Companions reply by naming whoever they're talking to, and naming another companion pulls *that* one into the conversation, so the thread can develop on its own.
+- How each companion behaves in a group is governed by its **Command Center platform awareness** (wizard Step 6) — edit the *Group Chat Conduct* section to give an agent its own group style.
 - Each companion's group turns still feed its own long-term memory.
 
 > **Platform scope:** Multiple companions and group chat are **command-center features**. In Second Life and Discord the agent always resolves to the **default companion** — extra companions are not yet active on those platforms.
@@ -170,7 +171,7 @@ Your `.env`, `data/`, and configured scripts are not touched by a pull. The LSL 
 
 ### Step 1 — Agent
 
-Set your agent's **name** (shown in all responses) and your own name (used in memory notes and context).
+Set your agent's **name** (shown in all responses) and your own name (used in memory notes and context). You can also add **aliases / nicknames** — comma-separated alternate names the companion answers to in command-center group chat (the same idea as the Second Life trigger names).
 
 > **Tip:** Pick a name that fits the persona you have in mind. You can change it any time through the wizard.
 
@@ -243,7 +244,7 @@ If you enable web search, paste your search API key (Brave or Serper).
 Two optional fields:
 
 - **Additional context** — anything else the agent should always know (e.g. your timezone, a shared fictional setting, house rules)
-- **Platform awareness overrides** — edit the per-platform behavior instructions for Discord, Second Life, and OpenSimulator if the defaults don't fit your setup
+- **Platform awareness overrides** — edit the per-platform behavior instructions. **Command Center** is always shown and includes a *Group Chat Conduct* section — this is where each companion's group-chat rules live, so you can tune how an agent talks in a group. Second Life, Discord, and OpenSimulator appear when enabled in Step 3.
 
 ### Step 7 — Agents
 

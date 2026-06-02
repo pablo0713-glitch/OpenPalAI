@@ -101,8 +101,8 @@ const D = {
 const MASK = '••••••••';
 const TOTAL = 8;
 const STEP_NAMES = ['Agent', 'Model', 'Platforms', 'Identity', 'Tools', 'Context', 'Agents', 'Save'];
-// Steps that edit the selected companion (the companion bar is shown on these).
-const COMPANION_STEPS = new Set([1, 2, 4, 5, 6]);
+// Steps that edit/review the selected companion (the companion bar is shown on these).
+const COMPANION_STEPS = new Set([1, 2, 4, 5, 6, 8]);
 
 // ============================================================
 // Companion helpers
@@ -1267,40 +1267,41 @@ function collectStep7() {
 // ============================================================
 
 function buildStep8() {
+  const c = ac();
+  const ids = Object.keys(state.companions);
+  const total = ids.length;
+  const position = ids.indexOf(state.activeCompanionId) + 1;
+  const isDefault = state.activeCompanionId === state.default_agent_id;
+
   const modelLabel = (() => {
-    const dc = defaultCompanion();
-    const p = dc.model_provider;
-    const m = dc.model_name;
     const names = { openai: 'OpenAI', openrouter: 'OpenRouter', gemini: 'Gemini', grok: 'Grok', ollama: 'Ollama', lm_studio: 'LM Studio' };
-    const label = esc(p === 'anthropic' ? m : `${names[p] || p} — ${m}`);
-    const others = Object.keys(state.companions).length - 1;
-    return others > 0 ? `${label} <span class="text-dim" style="font-size:0.85em">(default; per-companion)</span>` : label;
+    return esc(c.model_provider === 'anthropic' ? c.model_name : `${names[c.model_provider] || c.model_provider} — ${c.model_name}`);
   })();
 
   const platforms = [];
   if (state.discord_enabled) platforms.push('<span class="badge">Discord</span>');
   if (state.sl_enabled) platforms.push(`<span class="badge">SL${state.opensim_enabled ? ' / OpenSim' : ''}</span>`);
 
-  const def = defaultCompanion();
   const tools = [];
-  if (def.web_search_enabled) tools.push('<span class="badge">Web Search</span>');
-  if (def.notes_enabled)      tools.push('<span class="badge">Notes</span>');
-  if (def.sl_action_enabled && state.sl_enabled) tools.push('<span class="badge">SL Actions</span>');
-  if (def.voice_enabled     && state.sl_enabled) tools.push('<span class="badge">Voice</span>');
+  if (c.web_search_enabled) tools.push('<span class="badge">Web Search</span>');
+  if (c.notes_enabled)      tools.push('<span class="badge">Notes</span>');
+  if (c.sl_action_enabled && state.sl_enabled) tools.push('<span class="badge">SL Actions</span>');
+  if (c.voice_enabled     && state.sl_enabled) tools.push('<span class="badge">Voice</span>');
 
-  const companionIds = Object.keys(state.companions);
-  const others = companionIds.length - 1;
-  const agentValue = esc(def.agent_name) + (others > 0
-    ? ` <span class="text-dim" style="font-size:0.85em">+${others} more</span>` : '');
+  const companionValue = esc(c.agent_name) + (isDefault
+    ? ' <span class="text-dim" style="font-size:0.85em">(default)</span>' : '');
+  const reviewScope = total > 1
+    ? `Reviewing <strong>${esc(c.agent_name)}</strong> — companion ${position} of ${total}. Switch companions above to review each; <strong>Save</strong> writes all ${total} together.`
+    : `Review <strong>${esc(c.agent_name)}</strong>'s configuration, then save.`;
 
   return `
     <h2 class="step-heading">Ready to Launch</h2>
-    <p class="step-desc">Review your configuration, then save. Tools shown are for the default companion (${esc(def.agent_name)}).</p>
+    <p class="step-desc">${reviewScope}</p>
 
     <div class="review-grid">
       <div class="review-card">
-        <div class="review-label">Companion${others > 0 ? 's' : ''}</div>
-        <div class="review-value">${agentValue}</div>
+        <div class="review-label">Companion</div>
+        <div class="review-value">${companionValue}</div>
       </div>
       <div class="review-card">
         <div class="review-label">Model</div>

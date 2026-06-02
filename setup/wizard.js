@@ -1272,7 +1272,7 @@ function buildStep8() {
     const p = dc.model_provider;
     const m = dc.model_name;
     const names = { openai: 'OpenAI', openrouter: 'OpenRouter', gemini: 'Gemini', grok: 'Grok', ollama: 'Ollama', lm_studio: 'LM Studio' };
-    const label = p === 'anthropic' ? m : `${names[p] || p} — ${m}`;
+    const label = esc(p === 'anthropic' ? m : `${names[p] || p} — ${m}`);
     const others = Object.keys(state.companions).length - 1;
     return others > 0 ? `${label} <span class="text-dim" style="font-size:0.85em">(default; per-companion)</span>` : label;
   })();
@@ -1304,7 +1304,7 @@ function buildStep8() {
       </div>
       <div class="review-card">
         <div class="review-label">Model</div>
-        <div class="review-value">${esc(modelLabel)}</div>
+        <div class="review-value">${modelLabel}</div>
       </div>
       <div class="review-card">
         <div class="review-label">Platforms</div>

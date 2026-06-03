@@ -103,6 +103,16 @@ class AnthropicAdapter(ModelAdapter):
                 len(response.content), response.stop_reason, response.content,
             )
 
+        if hasattr(response, "usage") and response.usage:
+            u = response.usage
+            logger.debug(
+                "usage: in=%d out=%d cache_read=%d cache_write=%d",
+                getattr(u, "input_tokens", 0),
+                getattr(u, "output_tokens", 0),
+                getattr(u, "cache_read_input_tokens", 0),
+                getattr(u, "cache_creation_input_tokens", 0),
+            )
+
         raw_stop = response.stop_reason
         if raw_stop == "max_tokens":
             logger.warning("max_tokens hit — text=%d chars, tool_calls=%d", len("".join(text_parts)), len(tool_calls))
@@ -167,6 +177,16 @@ class OpenAICompatibleAdapter(ModelAdapter):
                 "name": tc.function.name,
                 "input": inp,
             })
+
+        if hasattr(response, "usage") and response.usage:
+            u = response.usage
+            cached = getattr(getattr(u, "prompt_tokens_details", None), "cached_tokens", 0) or 0
+            logger.debug(
+                "usage: in=%d out=%d cached=%d",
+                getattr(u, "prompt_tokens", 0),
+                getattr(u, "completion_tokens", 0),
+                cached,
+            )
 
         stop_reason = "tool_use" if (finish == "tool_calls" and tool_calls) else "end_turn"
         return ModelResponse(

@@ -97,7 +97,7 @@ def load_settings() -> Settings:
         model_provider=model_provider,
         anthropic_api_key=anthropic_api_key,
         claude_model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
-        max_tokens=int(os.getenv("CLAUDE_MAX_TOKENS", "1024")),
+        max_tokens=int(os.getenv("CLAUDE_MAX_TOKENS", "2048")),
         openai_api_key=openai_api_key,
         openai_model=os.getenv("OPENAI_MODEL", ""),
         openai_base_url=os.getenv("OPENAI_BASE_URL", ""),

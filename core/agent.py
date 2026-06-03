@@ -152,6 +152,35 @@ def _sanitize_history(history: list) -> list:
     while history and _get_role(history[0]) != "user":
         history = history[1:]
 
+    # Pass 4 — strip mid-history tool_use/tool_result pairs that survived from
+    # before the no-intermediate-turns persistence policy. A tool_use turn with
+    # no following text response confuses the model into producing empty output.
+    cleaned: list = []
+    i = 0
+    while i < len(history):
+        turn = history[i]
+        if _get_role(turn) == "assistant":
+            content = _get_content(turn)
+            if isinstance(content, list) and any(
+                (b.get("type") if isinstance(b, dict) else getattr(b, "type", None)) == "tool_use"
+                for b in content
+            ):
+                # Skip this tool_use assistant turn and its paired tool_result user turn
+                if i + 1 < len(history) and _is_tool_result_turn(history[i + 1]):
+                    i += 2
+                else:
+                    i += 1
+                continue
+        cleaned.append(turn)
+        i += 1
+
+    if len(cleaned) != len(history):
+        logger.warning(
+            "Sanitized history: stripped %d mid-history tool-use turns",
+            len(history) - len(cleaned),
+        )
+        history = cleaned
+
     if len(history) != n_before:
         logger.warning(
             "Sanitized history: %d → %d turns (stripped tail/leading role violations)",
@@ -469,7 +498,11 @@ class AgentCore:
                 parts.append(f"## Recent Activity — {platform}\n{summaries}")
         if not parts:
             return ""
-        return "\n\n".join(parts)
+        result = "\n\n".join(parts)
+        # Cap total STM bridge text to prevent runaway cross-platform context
+        if len(result) > 1500:
+            result = result[:1500].rsplit("\n", 1)[0]
+        return result
 
     async def _append_stm_entry(
         self,
@@ -554,9 +587,14 @@ class AgentCore:
 
             if response.stop_reason in ("end_turn", "max_tokens"):
                 if not response.text and not empty_retried:
+                    sys_chars = sum(
+                        len(b.get("text", "")) for b in system_blocks if isinstance(b, dict)
+                    )
                     logger.warning(
-                        "Empty text at stop_reason=%s for user %s — retrying",
+                        "Empty text at stop_reason=%s for user %s — retrying "
+                        "(round=%d msgs=%d sys_chars=%d)",
                         response.stop_reason, context.user_id,
+                        round_num, len(messages), sys_chars,
                     )
                     empty_retried = True
                     accumulated_turns.pop()

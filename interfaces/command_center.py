@@ -82,6 +82,8 @@ def _asset_version(path: Path) -> int:
 
 def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRouter:
     router = APIRouter()
+    _lib_dir = Path(settings.library_dir)
+    _groups_dir = Path(settings.memory_dir) / "groups"
 
     class _LibraryUpdateBody(BaseModel):
         always_on: bool
@@ -239,6 +241,7 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
         agents = [get_companion_agent(aid, cfg) for aid in group_ids]
         replies = await _orchestrate_group_chat(
             agent, cleaned_message, agents, user_name, cleaned_user_id, group_channel_id,
+            groups_dir=_groups_dir,
         )
         return JSONResponse(
             {"ok": True, "conversation_id": group_channel_id, "replies": replies}
@@ -251,7 +254,7 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
     ) -> JSONResponse:
         cleaned_user_id = _command_user_id(command_user_id)
         group_channel_id = _command_group_channel_id(conversation_id)
-        transcript, _ = _load_group(_group_path(cleaned_user_id, group_channel_id))
+        transcript, _ = _load_group(_group_path(cleaned_user_id, group_channel_id, _groups_dir))
         messages = [
             {
                 "role": "user" if entry.get("type") == "user" else "agent",
@@ -288,6 +291,7 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
                         tags=tags,
                         always_on=always_on,
                         platforms=platforms,
+                        library_dir=_lib_dir,
                     )
                 )
             except ValueError as exc:
@@ -305,12 +309,12 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
 
     @router.get("/command/library")
     async def command_library_list() -> JSONResponse:
-        store = LibraryStore(str(_ROOT / "data" / "library"))
+        store = LibraryStore(str(_lib_dir))
         return JSONResponse({"ok": True, "modules": store.list_modules()})
 
     @router.get("/command/library/{module_id}")
     async def command_library_get(module_id: str) -> JSONResponse:
-        mod = _get_library_module(module_id)
+        mod = _get_library_module(module_id, _lib_dir)
         if mod is None:
             return JSONResponse({"ok": False, "error": f"Module '{module_id}' not found."}, status_code=404)
         return JSONResponse(
@@ -332,7 +336,7 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
 
     @router.patch("/command/library/{module_id}")
     async def command_library_patch(module_id: str, body: _LibraryUpdateBody) -> JSONResponse:
-        mod = _get_library_module(module_id)
+        mod = _get_library_module(module_id, _lib_dir)
         if mod is None:
             return JSONResponse({"ok": False, "error": f"Module '{module_id}' not found."}, status_code=404)
         _write_library_module(
@@ -344,15 +348,16 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
             platforms=mod.platforms,
             tags=mod.tags,
             content=mod.content,
+            library_dir=_lib_dir,
         )
         return JSONResponse({"ok": True, "always_on": body.always_on})
 
     @router.delete("/command/library/{module_id}")
     async def command_library_delete(module_id: str) -> JSONResponse:
-        mod = _get_library_module(module_id)
+        mod = _get_library_module(module_id, _lib_dir)
         if mod is None:
             return JSONResponse({"ok": False, "error": f"Module '{module_id}' not found."}, status_code=404)
-        path = _ROOT / "data" / "library" / mod.filename
+        path = _lib_dir / mod.filename
         if path.exists():
             path.unlink()
         return JSONResponse({"ok": True, "deleted": mod.filename})
@@ -448,6 +453,7 @@ async def _store_library_module(
     tags: str,
     always_on: bool,
     platforms: str,
+    library_dir: Path,
 ) -> dict[str, Any]:
     raw, media_type, filename = await _read_upload(upload)
     if not _is_supported_document(media_type, filename):
@@ -468,7 +474,6 @@ async def _store_library_module(
     parsed_platforms = [platform for platform in (_clean_fragment(part.lower(), fallback="") for part in platforms.split(",")) if platform]
     description = f"Imported from {filename}"
 
-    library_dir = _ROOT / "data" / "library"
     library_dir.mkdir(parents=True, exist_ok=True)
     output_path = library_dir / filename_safe
     suffix = 2
@@ -498,6 +503,7 @@ async def _store_library_module(
         platforms=parsed_platforms,
         tags=parsed_tags,
         content=f"# {base_title}\n\n{body}\n",
+        library_dir=library_dir,
     )
     return {
         "id": module_id,
@@ -653,8 +659,8 @@ def _write_library_module(
     platforms: list[str],
     tags: list[str],
     content: str,
+    library_dir: Path,
 ) -> None:
-    library_dir = _ROOT / "data" / "library"
     library_dir.mkdir(parents=True, exist_ok=True)
     path = library_dir / filename
     payload = (
@@ -671,8 +677,8 @@ def _write_library_module(
     path.write_text(payload, encoding="utf-8")
 
 
-def _get_library_module(module_id: str):
-    store = LibraryStore(str(_ROOT / "data" / "library"))
+def _get_library_module(module_id: str, library_dir: Path):
+    store = LibraryStore(str(library_dir))
     return store.get_by_id(module_id)
 
 
@@ -703,7 +709,6 @@ def _command_channel_id(value: str) -> str:
 
 # ------------------------------------------------------------------ group chat
 
-_GROUPS_DIR = _ROOT / "data" / "memory" / "groups"
 _GROUP_MAX_TURNS = 8          # hard cap on agent turns per user message (runaway guard)
 _GROUP_MAX_PER_AGENT = 2      # an agent may speak at most twice per user message
 _GROUP_TRANSCRIPT_CAP = 200   # entries retained in the shared transcript file
@@ -714,9 +719,9 @@ def _command_group_channel_id(value: str) -> str:
     return f"command_group_{cleaned}"
 
 
-def _group_path(user_id: str, channel_id: str) -> Path:
+def _group_path(user_id: str, channel_id: str, groups_dir: Path) -> Path:
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", f"{user_id}__{channel_id}")
-    return _GROUPS_DIR / f"{safe}.json"
+    return groups_dir / f"{safe}.json"
 
 
 def _load_group(path: Path) -> tuple[list[dict], dict[str, int]]:
@@ -794,6 +799,8 @@ async def _orchestrate_group_chat(
     user_name: str,
     user_id: str,
     channel_id: str,
+    *,
+    groups_dir: Path,
 ) -> list[dict]:
     """Run one user message through the group: mention-routing + cascade.
 
@@ -801,7 +808,7 @@ async def _orchestrate_group_chat(
     answered through the normal per-agent pipeline (so group turns persist into
     each companion's own agent-scoped history and feed its long-term memory).
     """
-    path = _group_path(user_id, channel_id)
+    path = _group_path(user_id, channel_id, groups_dir)
     transcript, cursors = _load_group(path)
 
     participants_for_prompt = [{"id": user_id, "name": user_name, "type": "user"}] + [

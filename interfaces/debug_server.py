@@ -202,7 +202,13 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
             ) as cur:
                 top_turns = [dict(row) async for row in cur]
 
-        safe = user_id.replace("/", "_").replace(":", "_")
+        # Resolve canonical person_id from user_id; MEMORY.md is stored under person_id
+        person_id = user_id
+        if agent_core._person_map is not None:
+            resolved = agent_core._person_map.get_person_id(user_id)
+            if resolved:
+                person_id = resolved
+        safe = person_id.replace("/", "_").replace(":", "_")
         agent_mem_dir = Path(settings.memory_dir) / "agents" / agent_id / safe
         legacy_mem_dir = Path(settings.memory_dir) / safe
 

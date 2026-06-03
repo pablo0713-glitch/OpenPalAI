@@ -942,3 +942,19 @@ _extract_json() regex fallback — model sometimes wraps JSON in prose or fences
 Batch importance writes — one SQLite connection for all score updates per cycle instead of N connections, eliminates "database is locked" contention with the backfill task
 max_tokens=600 for curator scoring — 20 turns × ~23 chars of JSON output each exceeds the original 256 limit; truncated JSON causes silent score-drop fallbacks to {}
 Doc ID = SQLite rowid — stable, autoincrement, never reused; keeps FTS5 and ChromaDB in sync without a secondary mapping table
+
+---
+
+## What's Next
+
+### Library Wizard Tab
+The library system is fully implemented but has no wizard UI. Modules are currently managed via the `POST /setup/library` API only. A dedicated tab in the wizard (after Step 7) would allow creating, editing, toggling `always_on`, and setting platform filters without curl commands.
+
+### Importance Threshold in Wizard
+`IMPORTANCE_THRESHOLD` (default `0.6`) is env-var-only. It should be exposed in wizard Step 7 alongside the supporting agent model config, so users can tune what makes it into consolidation transcripts without editing `.env`.
+
+### Lua-Side Persistence for Echo Table
+The `sent_replies` echo-suppression table in `lua/agent_companion.lua` is reset every viewer restart, which allows reflected IMs to slip through on reconnect. `SetPerAccountData()` / `GetPerAccountData()` (Cool VL Viewer Lua API) should be used to persist this table across sessions. Same applies to the streaming toggle state.
+
+### Fix Example Paths in This Document
+All testing examples use the hardcoded path `SL_Notes` (e.g., `cat data/memory/SL_Notes/MEMORY.md`). The actual path structure is `data/memory/agents/{agent_id}/{safe_person_id}/MEMORY.md` for non-default agents. The code is correct; the docs lag. Examples should use `{agent_id}::{person_id}` notation to match the actual namespace.

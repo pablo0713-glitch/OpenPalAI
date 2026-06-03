@@ -193,6 +193,7 @@ async def main() -> None:
         memory_store=memory,
         person_map=person_map,
         notes_dir=settings.notes_dir,
+        memory_dir=settings.memory_dir,
         curator=curator,
         session_index=session_index,
         importance_threshold=settings.importance_threshold,

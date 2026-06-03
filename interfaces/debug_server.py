@@ -149,6 +149,113 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
             }
         return JSONResponse(result)
 
+    @router.get("/debug/sessions/users")
+    async def debug_sessions_users() -> JSONResponse:
+        if session_index is None:
+            return JSONResponse({"users": []})
+        async with aiosqlite.connect(session_index._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT DISTINCT user_id, agent_id, COUNT(*) as turns "
+                "FROM sessions GROUP BY user_id, agent_id ORDER BY user_id"
+            ) as cur:
+                rows = [dict(row) async for row in cur]
+        return JSONResponse({"users": rows})
+
+    @router.get("/debug/sessions")
+    async def debug_sessions(user_id: str = "", agent_id: str = "") -> JSONResponse:
+        if session_index is None:
+            return JSONResponse({"error": "Session index not available"})
+        settings = agent_core._settings
+
+        async with aiosqlite.connect(session_index._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT COUNT(*) as total, "
+                "COUNT(CASE WHEN importance = -1.0 THEN 1 END) as unscored, "
+                "AVG(CASE WHEN importance != -1.0 THEN importance END) as avg_score "
+                "FROM sessions WHERE user_id = ? AND agent_id = ?",
+                (user_id, agent_id),
+            ) as cur:
+                row = await cur.fetchone()
+                total = row["total"] if row else 0
+                unscored = row["unscored"] if row else 0
+                avg_score = row["avg_score"] if row else None
+
+            async with db.execute(
+                "SELECT "
+                "  CASE WHEN importance = -1.0 THEN 'unscored' "
+                "       WHEN importance < 0.1 THEN '0.0-0.1' "
+                "       WHEN importance < 0.3 THEN '0.1-0.3' "
+                "       WHEN importance < 0.6 THEN '0.3-0.6' "
+                "       ELSE '0.6-1.0' END as bucket, COUNT(*) as cnt "
+                "FROM sessions WHERE user_id = ? AND agent_id = ? GROUP BY bucket",
+                (user_id, agent_id),
+            ) as cur:
+                distribution = {row["bucket"]: row["cnt"] async for row in cur}
+
+            async with db.execute(
+                "SELECT id, role, content, timestamp, display_name, importance, platform "
+                "FROM sessions WHERE user_id = ? AND agent_id = ? AND importance >= 0.6 "
+                "ORDER BY importance DESC, timestamp DESC LIMIT 10",
+                (user_id, agent_id),
+            ) as cur:
+                top_turns = [dict(row) async for row in cur]
+
+        safe = user_id.replace("/", "_").replace(":", "_")
+        agent_mem_dir = Path(settings.memory_dir) / "agents" / agent_id / safe
+        legacy_mem_dir = Path(settings.memory_dir) / safe
+
+        memory_md = ""
+        mem_file = agent_mem_dir / "MEMORY.md"
+        if not mem_file.exists():
+            legacy = legacy_mem_dir / "MEMORY.md"
+            if legacy.exists():
+                mem_file = legacy
+        if mem_file.exists():
+            try:
+                memory_md = mem_file.read_text(encoding="utf-8")
+            except OSError:
+                pass
+
+        last_consolidation: float | None = None
+        last_consolidation_fmt = ""
+        ts_file = agent_mem_dir / ".last_consolidation"
+        if ts_file.exists():
+            try:
+                ts = float(ts_file.read_text(encoding="utf-8").strip())
+                last_consolidation = ts
+                last_consolidation_fmt = datetime.fromtimestamp(ts, tz=timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M:%S UTC"
+                )
+            except (OSError, ValueError):
+                pass
+
+        return JSONResponse({
+            "user_id": user_id,
+            "agent_id": agent_id,
+            "total_turns": total,
+            "unscored": unscored,
+            "scored": total - unscored,
+            "avg_score": round(avg_score, 3) if avg_score is not None else None,
+            "distribution": distribution,
+            "last_consolidation": last_consolidation,
+            "last_consolidation_fmt": last_consolidation_fmt,
+            "memory_md": memory_md,
+            "top_turns": [
+                {
+                    "id": t["id"],
+                    "role": t["role"],
+                    "content": str(t["content"])[:300],
+                    "timestamp": t["timestamp"],
+                    "display_name": t["display_name"],
+                    "importance": t["importance"],
+                    "platform": t["platform"],
+                }
+                for t in top_turns
+            ],
+        })
+
     @router.delete("/debug/reset-memory")
     async def reset_memory() -> JSONResponse:
         settings = agent_core._settings
@@ -313,6 +420,29 @@ _DEBUG_HTML = """<!DOCTYPE html>
   .badge.sl { background: #1e3a5f; color: #60a5fa; }
   .badge.discord { background: #312e81; color: #c4b5fd; }
   .empty { color: var(--dim); font-size: 12px; padding: 24px; text-align: center; }
+  .sess-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; flex-shrink: 0; }
+  .sess-stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+  .sess-stat .s-label { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .sess-stat .s-value { color: var(--text); font-size: 20px; font-weight: 700; margin-top: 4px; }
+  .sess-stat .s-sub { color: var(--dim); font-size: 11px; margin-top: 2px; }
+  .sess-dist { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; flex-shrink: 0; }
+  .sess-dist h4 { color: var(--dim); font-size: 11px; margin-bottom: 8px; }
+  .dist-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .dist-label { color: var(--dim); font-size: 11px; min-width: 70px; }
+  .dist-bar-wrap { flex: 1; height: 10px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .dist-bar { height: 100%; border-radius: 3px; }
+  .dist-count { color: var(--text); font-size: 11px; min-width: 30px; text-align: right; }
+  .sess-bottom { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; overflow: hidden; }
+  .sess-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; overflow-y: auto; display: flex; flex-direction: column; }
+  .sess-panel h4 { color: var(--accent); font-size: 12px; margin-bottom: 8px; flex-shrink: 0; }
+  .sess-memory { font-size: 11px; white-space: pre-wrap; word-break: break-all; color: var(--text); line-height: 1.6; }
+  .turn-item { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .turn-item:last-child { border-bottom: none; }
+  .turn-meta { display: flex; gap: 6px; align-items: center; margin-bottom: 3px; }
+  .turn-score { font-size: 11px; font-weight: 700; min-width: 36px; }
+  .turn-role { font-size: 10px; color: var(--dim); }
+  .turn-ts { font-size: 10px; color: var(--dim); margin-left: auto; }
+  .turn-content { font-size: 11px; color: var(--dim); white-space: pre-wrap; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -339,6 +469,7 @@ _DEBUG_HTML = """<!DOCTYPE html>
   <div class="tab active" onclick="switchTab('logs')">Logs</div>
   <div class="tab" onclick="switchTab('sensors')">Sensors</div>
   <div class="tab" onclick="switchTab('prompts')">Prompts & Exchanges</div>
+  <div class="tab" onclick="switchTab('sessions')">Memory Pipeline</div>
 </div>
 
 <!-- LOGS -->
@@ -376,6 +507,21 @@ _DEBUG_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- MEMORY PIPELINE -->
+<div class="panel" id="panel-sessions">
+  <div class="toolbar">
+    <label>User</label>
+    <select id="sess-user" onchange="loadSessions()"><option value="">— select user —</option></select>
+    <label>Agent</label>
+    <select id="sess-agent" onchange="loadSessions()"><option value="">— select agent —</option></select>
+    <button onclick="refreshSessionUsers()">Refresh users</button>
+    <span style="color:var(--dim);font-size:11px" id="sess-refresh-time"></span>
+  </div>
+  <div id="sess-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:10px">
+    <div class="empty">Select a user to inspect the memory pipeline.</div>
+  </div>
+</div>
+
 <!-- PROMPTS -->
 <div class="panel" id="panel-prompts">
   <div class="toolbar">
@@ -396,7 +542,7 @@ _DEBUG_HTML = """<!DOCTYPE html>
 // ── Tab switching ──
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t, i) => {
-    const panels = ['logs','sensors','prompts'];
+    const panels = ['logs','sensors','prompts','sessions'];
     t.classList.toggle('active', panels[i] === name);
   });
   document.querySelectorAll('.panel').forEach(p => {
@@ -404,6 +550,7 @@ function switchTab(name) {
   });
   if (name === 'sensors') refreshSensors();
   if (name === 'prompts') refreshPrompts();
+  if (name === 'sessions') refreshSessionUsers();
 }
 
 // ── Log streaming ──
@@ -778,7 +925,7 @@ function parseMemorySections(text) {
     sections.push({ ...current, entries });
   };
   for (const line of lines) {
-    if (/^(?:MEMORY|USER)\s/.test(line)) {
+    if (/^(?:MEMORY|USER)[ \t]/.test(line)) {
       flush();
       const bracketIdx = line.indexOf('[');
       current = {
@@ -848,6 +995,92 @@ function fmtAge(secs) {
   if (secs < 60) return secs + 's ago';
   if (secs < 3600) return Math.floor(secs/60) + 'm ago';
   return Math.floor(secs/3600) + 'h ago';
+}
+
+// ── Memory Pipeline (Sessions) ──
+let sessUsersData = [];
+
+async function refreshSessionUsers() {
+  const data = await fetch('/debug/sessions/users').then(r => r.json()).catch(() => null);
+  if (!data) return;
+  sessUsersData = data.users || [];
+  const userSel = document.getElementById('sess-user');
+  const agentSel = document.getElementById('sess-agent');
+  const prevUser = userSel.value;
+  const prevAgent = agentSel.value;
+  const agents = [...new Set(sessUsersData.map(u => u.agent_id))].sort();
+  agentSel.innerHTML = '<option value="">— select agent —</option>' +
+    agents.map(a => '<option value="' + esc(a) + '"' + (a === prevAgent ? ' selected' : '') + '>' + esc(a) + '</option>').join('');
+  const selectedAgent = agentSel.value || (agents[0] || '');
+  if (!agentSel.value && agents[0]) agentSel.value = agents[0];
+  const filteredUsers = sessUsersData.filter(u => !selectedAgent || u.agent_id === selectedAgent);
+  userSel.innerHTML = '<option value="">— select user —</option>' +
+    filteredUsers.map(u =>
+      '<option value="' + esc(u.user_id) + '"' + (u.user_id === prevUser ? ' selected' : '') + '>' +
+      esc(u.user_id) + ' (' + u.turns + ' turns)</option>'
+    ).join('');
+  document.getElementById('sess-refresh-time').textContent = 'updated: ' + new Date().toLocaleTimeString();
+  if (userSel.value) loadSessions();
+}
+
+async function loadSessions() {
+  const userId = document.getElementById('sess-user').value;
+  const agentId = document.getElementById('sess-agent').value;
+  const content = document.getElementById('sess-content');
+  if (!userId) { content.innerHTML = '<div class="empty">Select a user to inspect the memory pipeline.</div>'; return; }
+  content.innerHTML = '<div class="empty">Loading...</div>';
+  const data = await fetch('/debug/sessions?user_id=' + encodeURIComponent(userId) + '&agent_id=' + encodeURIComponent(agentId))
+    .then(r => r.json()).catch(() => null);
+  if (!data || data.error) { content.innerHTML = '<div class="empty">' + esc((data && data.error) || 'Failed to load.') + '</div>'; return; }
+  const scored = data.scored || 0;
+  const total = data.total_turns || 0;
+  const unscored = data.unscored || 0;
+  const avgScore = data.avg_score != null ? data.avg_score.toFixed(3) : '—';
+  const consolidation = data.last_consolidation_fmt || 'Never';
+  const buckets = [
+    { key: 'unscored', label: 'Unscored', color: 'var(--faint)' },
+    { key: '0.0-0.1', label: '0.0–0.1 filler', color: '#4b5563' },
+    { key: '0.1-0.3', label: '0.1–0.3 mild', color: '#6b7280' },
+    { key: '0.3-0.6', label: '0.3–0.6 context', color: '#60a5fa' },
+    { key: '0.6-1.0', label: '0.6–1.0 notable', color: '#8b5cf6' },
+  ];
+  const dist = data.distribution || {};
+  const maxBucket = Math.max(1, ...Object.values(dist));
+  const distHtml = buckets.map(b => {
+    const cnt = dist[b.key] || 0;
+    const pct = Math.round(cnt / maxBucket * 100);
+    return '<div class="dist-row"><span class="dist-label">' + esc(b.label) + '</span>' +
+      '<div class="dist-bar-wrap"><div class="dist-bar" style="width:' + pct + '%;background:' + b.color + '"></div></div>' +
+      '<span class="dist-count">' + cnt + '</span></div>';
+  }).join('');
+  const turnsHtml = (data.top_turns || []).map(t => {
+    const score = typeof t.importance === 'number' ? t.importance.toFixed(2) : '?';
+    const scoreColor = t.importance >= 0.6 ? 'var(--accent)' : 'var(--info)';
+    return '<div class="turn-item">' +
+      '<div class="turn-meta">' +
+      '<span class="turn-score" style="color:' + scoreColor + '">' + esc(score) + '</span>' +
+      '<span class="badge ' + (t.platform === 'discord' ? 'discord' : 'sl') + '">' + esc(t.platform || '?') + '</span>' +
+      '<span class="turn-role">' + esc(t.role) + '</span>' +
+      '<span class="turn-ts">' + esc((t.timestamp || '').slice(0, 16)) + '</span>' +
+      '</div>' +
+      '<div class="turn-content">' + esc(t.content || '') + '</div>' +
+      '</div>';
+  }).join('') || '<div class="empty" style="padding:8px">No high-importance turns yet (threshold ≥0.6).</div>';
+  content.innerHTML =
+    '<div class="sess-grid">' +
+    '<div class="sess-stat"><div class="s-label">Total turns</div><div class="s-value">' + total + '</div></div>' +
+    '<div class="sess-stat"><div class="s-label">Unscored</div><div class="s-value" style="color:var(--warning)">' + unscored + '</div>' +
+      '<div class="s-sub">' + scored + ' scored</div></div>' +
+    '<div class="sess-stat"><div class="s-label">Avg importance</div><div class="s-value">' + avgScore + '</div>' +
+      '<div class="s-sub">of scored turns</div></div>' +
+    '<div class="sess-stat"><div class="s-label">Last consolidation</div><div class="s-value" style="font-size:12px;margin-top:6px">' + esc(consolidation) + '</div></div>' +
+    '</div>' +
+    '<div class="sess-dist"><h4>Score distribution</h4>' + distHtml + '</div>' +
+    '<div class="sess-bottom">' +
+    '<div class="sess-panel"><h4>MEMORY.md (curated notes)</h4>' +
+    '<div class="sess-memory">' + esc(data.memory_md || '(empty — not consolidated yet)') + '</div></div>' +
+    '<div class="sess-panel"><h4>Top turns by importance (≥0.6)</h4>' + turnsHtml + '</div>' +
+    '</div>';
 }
 
 // ── Auto-refresh ──

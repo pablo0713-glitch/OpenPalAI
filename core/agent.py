@@ -328,6 +328,47 @@ class AgentCore:
             "has_block2": len(system_blocks) > 2,
             "library_context_chars": len(library_context),
         }
+        # Proactive recall: run a lightweight context check before the main tool loop.
+        # Gate: PROACTIVE_RECALL=true in environment. Adds ~1 small API call per message.
+        if (
+            self._settings.proactive_recall
+            and self._tools._session_index is not None
+            and message_text.strip()
+        ):
+            try:
+                probe = await self._adapter.create_simple(
+                    system=(
+                        "You decide whether a message references past events, people, or topics "
+                        "that need a memory search before replying. "
+                        "Answer ONLY 'sufficient' if current context is enough, "
+                        "or 'search: <query>' with a short keyword query to run."
+                    ),
+                    messages=[{"role": "user", "content": f"Message: {message_text[:400]}"}],
+                    max_tokens=64,
+                )
+                probe = (probe or "").strip()
+                if probe.lower().startswith("search:"):
+                    query = probe[7:].strip()
+                    if query:
+                        from core.tool_handlers.session_search import handle_session_search
+                        recall_result = await handle_session_search(
+                            {"query": query, "limit": 5},
+                            context,
+                            self._tools._session_index,
+                        )
+                        logger.debug(
+                            "Proactive recall '%s': searched '%s' → %d chars",
+                            context.user_id, query, len(recall_result),
+                        )
+                        if recall_result and "no results" not in recall_result.lower():
+                            if isinstance(message_content, str):
+                                message_content = (
+                                    message_content
+                                    + f"\n\n[Recalled from memory ({query}):\n{recall_result}]"
+                                )
+            except Exception as _probe_exc:
+                logger.debug("Proactive recall check failed (non-fatal): %s", _probe_exc)
+
         messages = _sanitize_history(list(history)) + [{"role": "user", "content": message_content}]
 
         sl_action_queue: list[dict] = []

@@ -11,18 +11,42 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_json(text: str) -> str:
-    """Pull the first {...} JSON object out of model output, stripping any surrounding prose or code fences."""
+    """Pull the first balanced {...} JSON object out of model output."""
     text = text.strip()
-    # Strip markdown fences
     if text.startswith("```"):
         inner = text.split("```")
         text = inner[1] if len(inner) > 1 else text
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
-    # Find first { ... } block
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    return m.group(0) if m else text
+    # Find first { and walk to its matching }, respecting strings and nesting
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    # No balanced close found — return from start and let json.loads raise
+    return text[start:]
 
 
 _SYSTEM = (
@@ -73,14 +97,19 @@ class MemoryCuratorAgent(SupportingAgent):
             + json.dumps(items, ensure_ascii=False)
             + '\n\nReply with JSON only: {"scores": [{"id": <id>, "score": <float>}, ...]}'
         )
+        raw = ""
         try:
             raw = await self.run(prompt, max_tokens=600)
-            raw = _extract_json(raw)
-            data = json.loads(raw)
+            extracted = _extract_json(raw)
+            data = json.loads(extracted)
             return {int(entry["id"]): float(entry["score"]) for entry in data.get("scores", [])}
         except Exception as exc:
-            logger.warning("MemoryCuratorAgent._score_batch failed: %s", exc)
-            return {}
+            logger.error(
+                "MemoryCuratorAgent._score_batch failed: %s | raw output: %.300r",
+                exc, raw,
+            )
+            # Assign a neutral default so these turns aren't silently dropped forever
+            return {int(t["id"]): 0.3 for t in turns}
 
     async def should_consolidate(self, transcript: str, existing_memory: str) -> bool:
         """

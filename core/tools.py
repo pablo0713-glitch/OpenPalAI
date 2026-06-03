@@ -195,6 +195,8 @@ SESSION_SEARCH_SCHEMA = {
         "Search your full conversation history across all users and platforms. "
         "ALWAYS call this before saying you don't recall a person, conversation, or event — "
         "search by avatar display name, topic, or keywords. "
+        "Also call this proactively at the start of a conversation about a past event, person, "
+        "or topic — even if you think you remember it. "
         "Returns timestamped snippets with the speaker's name, platform, and date."
     ),
     "input_schema": {
@@ -221,7 +223,11 @@ MEMORY_SCHEMA = {
         "  'memory' — your notes about context, facts, and the world (~2,000 chars).\n"
         "  'user'   — the owner's profile: their preferences, style, background (~1,200 chars).\n"
         "Both are injected into every system prompt. Use this to remember what matters and "
-        "forget what doesn't. Do not announce that you are updating memory."
+        "forget what doesn't. Do not announce that you are updating memory.\n"
+        "Call memory.add immediately after learning any new fact about the owner — preferences, "
+        "names, projects, plans, opinions — without waiting to be asked. Do not batch facts; "
+        "save each one as you learn it. Use 'replace' when a fact has changed, 'remove' when "
+        "it's no longer relevant."
     ),
     "input_schema": {
         "type": "object",
@@ -284,7 +290,11 @@ SEMANTIC_RECALL_SCHEMA = {
         "Search conversation history by meaning rather than exact keywords. "
         "Use when looking for something thematically related — e.g. 'conversations about "
         "building projects' or 'times someone seemed upset'. "
-        "Complements session_search (which matches exact keywords)."
+        "Complements session_search (which matches exact keywords). "
+        "Call this when the user references something by feeling or theme rather than specific "
+        "words, or when session_search returns nothing but the topic feels familiar. "
+        "Also call proactively when the user mentions a topic you may have discussed before "
+        "but don't have in your current context."
     ),
     "input_schema": {
         "type": "object",

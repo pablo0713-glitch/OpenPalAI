@@ -69,6 +69,9 @@ class Settings:
     importance_threshold: float
     importance_score_batch_size: int
 
+    # Proactive recall: run a lightweight context-check before each message (adds one small API call)
+    proactive_recall: bool
+
 
 _CLOUD_OPENAI_COMPAT = {"openai", "openrouter", "gemini", "grok"}
 
@@ -131,8 +134,9 @@ def load_settings() -> Settings:
         ],
         library_dir=os.getenv("LIBRARY_DIR", "./data/library"),
         library_always_on_cap=int(os.getenv("LIBRARY_ALWAYS_ON_CAP", "4000")),
-        importance_threshold=float(os.getenv("IMPORTANCE_THRESHOLD", "0.6")),
+        importance_threshold=float(os.getenv("IMPORTANCE_THRESHOLD", "0.4")),
         importance_score_batch_size=int(os.getenv("IMPORTANCE_SCORE_BATCH_SIZE", "20")),
+        proactive_recall=os.getenv("PROACTIVE_RECALL", "").lower() == "true",
     )
 
 

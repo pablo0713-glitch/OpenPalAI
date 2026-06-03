@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,7 +18,9 @@ from memory.session_index import SessionIndex
 
 logger = logging.getLogger(__name__)
 
-CONSOLIDATION_THRESHOLD = 30   # total turns across all files for a person
+CONSOLIDATION_THRESHOLD = 30       # total turns across all files for a person
+FIRST_CONSOLIDATION_THRESHOLD = 15 # lower threshold when MEMORY.md doesn't exist yet
+GATE_BYPASS_HOURS = 72             # bypass curator gate if last consolidation was this long ago
 KEEP_TURNS_AFTER = 10
 MEMORY_CAP = 2000   # chars cap for MEMORY.md
 
@@ -43,6 +46,7 @@ class MemoryConsolidator:
         curator: MemoryCuratorAgent | None = None,
         session_index: SessionIndex | None = None,
         importance_threshold: float = 0.6,
+        memory_dir: str | None = None,
     ) -> None:
         self._adapter = adapter
         self._store = memory_store
@@ -53,6 +57,9 @@ class MemoryConsolidator:
         self._curator = curator
         self._session_index = session_index
         self._importance_threshold = importance_threshold
+        # memory_dir is stored explicitly so paths don't depend on notes_dir's location.
+        # Falls back to notes_dir/../memory for backward compatibility.
+        self._memory_dir = Path(memory_dir) if memory_dir else Path(notes_dir).parent / "memory"
 
     async def run_all(self) -> None:
         for agent in list_companion_agents():
@@ -72,7 +79,19 @@ class MemoryConsolidator:
             return
 
         total = sum(len(c.turns) for c in all_convs)
-        if total < self._threshold:
+
+        # Use a lower threshold for first consolidation (MEMORY.md doesn't exist yet).
+        # Check both the agent-scoped path and the legacy flat path so local installs
+        # that predate the multi-agent migration don't get a spurious first-consolidation.
+        safe = person_id.replace("/", "_").replace(":", "_")
+        mem_file = self._memory_dir / "agents" / agent_id / safe / "MEMORY.md"
+        if not mem_file.exists():
+            legacy_mem = self._memory_dir / safe / "MEMORY.md"
+            if legacy_mem.exists():
+                mem_file = legacy_mem
+        effective_threshold = FIRST_CONSOLIDATION_THRESHOLD if not mem_file.exists() else self._threshold
+
+        if total < effective_threshold:
             return
         logger.info(
             "Consolidating memory for '%s': %d files, %d total turns (threshold %d)",
@@ -121,26 +140,35 @@ class MemoryConsolidator:
         if not transcript.strip():
             return
 
-        # Curator gate: skip if nothing new worth adding
+        # Curator gate: skip if nothing new worth adding (bypassed after GATE_BYPASS_HOURS)
+        safe = person_id.replace("/", "_").replace(":", "_")
+        agent_mem_dir = self._memory_dir / "agents" / agent_id / safe
         if self._curator:
-            memory_dir = Path(self._notes_dir).parent / "memory" / "agents" / agent_id
-            safe = person_id.replace("/", "_").replace(":", "_")
             existing_text = ""
-            mem_file = memory_dir / safe / "MEMORY.md"
+            mem_file = agent_mem_dir / "MEMORY.md"
+            if not mem_file.exists():
+                legacy_mem = self._memory_dir / safe / "MEMORY.md"
+                if legacy_mem.exists():
+                    mem_file = legacy_mem
             if mem_file.exists():
                 existing_text = mem_file.read_text(encoding="utf-8")
             if not await self._curator.should_consolidate(transcript, existing_text):
-                logger.info("Curator gate: skipping consolidation for '%s' (no new value)", person_id)
-                return
+                last_ts = _read_last_consolidation_time(agent_mem_dir)
+                secs_since = (time.time() - last_ts) if last_ts is not None else float("inf")
+                if secs_since < GATE_BYPASS_HOURS * 3600:
+                    logger.info("Curator gate: skipping consolidation for '%s' (no new value)", person_id)
+                    return
+                logger.info(
+                    "Curator gate bypassed for '%s' — %.1fh since last consolidation (limit %dh)",
+                    person_id, secs_since / 3600, GATE_BYPASS_HOURS,
+                )
 
         notes_text = await self._ask_model(agent_id, person_id, transcript)
         if not notes_text:
             return
 
         # Append new bullet points into MEMORY.md (bounded, trim oldest to make room)
-        memory_dir = Path(self._notes_dir).parent / "memory" / "agents" / agent_id
-        safe = person_id.replace("/", "_").replace(":", "_")
-        memory_file = memory_dir / safe / "MEMORY.md"
+        memory_file = agent_mem_dir / "MEMORY.md"
         memory_file.parent.mkdir(parents=True, exist_ok=True)
 
         bullets = [
@@ -174,6 +202,7 @@ class MemoryConsolidator:
         async with aiofiles.open(audit_path, "w", encoding="utf-8") as f:
             await f.write(notes_text)
 
+        _write_last_consolidation_time(agent_mem_dir)
         logger.info("Memory consolidated for '%s' → %s (%d chars)", person_id, memory_file, len(existing))
 
     async def _ask_model(self, agent_id: str, person_id: str, transcript: str) -> str:
@@ -252,3 +281,19 @@ def _build_transcript(
             parts.append("\n".join(lines))
 
     return "\n\n---\n\n".join(parts)
+
+
+def _read_last_consolidation_time(person_dir: Path) -> float | None:
+    stamp = person_dir / ".last_consolidation"
+    try:
+        return float(stamp.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _write_last_consolidation_time(person_dir: Path) -> None:
+    try:
+        person_dir.mkdir(parents=True, exist_ok=True)
+        (person_dir / ".last_consolidation").write_text(str(time.time()), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not write last-consolidation timestamp: %s", exc)

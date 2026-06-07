@@ -15,7 +15,7 @@ _DEFAULT_CHANNEL_LABEL = "IM / /42"
 
 class AvatarStore:
     """
-    Global registry of SL avatars Trixxie has spoken with.
+    Global registry of SL avatars OpenPalAI has spoken with.
     Stored at {memory_dir}/known_avatars.json.
 
     File format

@@ -14,7 +14,7 @@ class SupportingAgent:
     Lightweight base class for specialist supporting agents.
 
     Each instance has its own ModelAdapter (potentially a different provider
-    and model from the main Trixxie agent) and a focused system prompt.
+    and model from the main OpenPalAI agent) and a focused system prompt.
     Supporting agents are NOT full AgentCore instances — no memory, tools,
     or persona. They exist for scoped reasoning tasks only.
 

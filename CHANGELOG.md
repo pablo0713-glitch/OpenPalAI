@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Trixxie Companion Agent are documented here.
+All notable changes to OpenPalAI are documented here.
 
 ---
 

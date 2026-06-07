@@ -335,7 +335,7 @@ from memory.vector_store import VectorMemoryStore
 async def main():
     settings = load_settings()
     vs = VectorMemoryStore(settings.memory_dir)
-    results = await vs.semantic_search('trixxie-carissa::Pablo', 'mesh body options', n_results=3)
+    results = await vs.semantic_search('openpalai-carissa::Pablo', 'mesh body options', n_results=3)
     for r in results:
         print(f'sim={r[\"distance\"]:.3f}  {r[\"metadata\"][\"display_name\"]}')
         print(f'  {r[\"content\"][:100]}')
@@ -850,11 +850,11 @@ Navigate to `http://localhost:8080/debug` → Prompts tab:
 
 ## Non technical explanation:
 
-How Trixxie Remembers Things
-Think of Trixxie's memory like a person who keeps a diary, a filing cabinet, a sticky-note board, and a research library — all working together.
+How OpenPalAI Remembers Things
+Think of OpenPalAI's memory like a person who keeps a diary, a filing cabinet, a sticky-note board, and a research library — all working together.
 
 1. 📝 Short-Term Memory — "What we were just talking about"
-Every conversation is saved turn-by-turn, like a chat log. Trixxie holds the last ~20 messages in her head while talking to you.
+Every conversation is saved turn-by-turn, like a chat log. OpenPalAI holds the last ~20 messages in her head while talking to you.
 
 Example: You mention you're working on a sci-fi build in SL. Ten messages later you ask "how should I decorate it?" — she still knows it's sci-fi themed because it's in the recent scroll.
 
@@ -869,7 +869,7 @@ Example after consolidation:
 The next time you talk — even a week later — she already knows all of this.
 
 3. 🔍 Full Archive + Keyword Search — "Let me look that up"
-Everything ever said is stored in a searchable database. Trixxie has a tool called session_search she can invoke when you reference something specific from the past.
+Everything ever said is stored in a searchable database. OpenPalAI has a tool called session_search she can invoke when you reference something specific from the past.
 
 Example: You say "remember that thing I told you about my sister?" — she can search and pull up the exact exchange from three weeks ago.
 
@@ -889,12 +889,12 @@ Score	Meaning	Example
 Only high-scoring turns get promoted to the long-term notes. Small talk stays in the archive but doesn't clutter the notes.
 
 6. 📚 Library Modules — "Reference sheets she can pull out"
-You can create lore/reference documents (like a Gorean RP guide, or a fashion glossary) that Trixxie can look up on demand or keep always loaded for certain contexts.
+You can create lore/reference documents (like a Gorean RP guide, or a fashion glossary) that OpenPalAI can look up on demand or keep always loaded for certain contexts.
 
-Example: You set up a gorean_rp.md library module. When you start talking about RP dynamics, Trixxie automatically has the lore loaded and doesn't need you to explain it every session.
+Example: You set up a gorean_rp.md library module. When you start talking about RP dynamics, OpenPalAI automatically has the lore loaded and doesn't need you to explain it every session.
 
 🔄 How It All Fits Together
-When you send a message, Trixxie assembles her context like this:
+When you send a message, OpenPalAI assembles her context like this:
 
 
 [ Who she is + what she knows about you ]  ← long-term notes, always loaded
@@ -905,7 +905,7 @@ When you send a message, Trixxie assembles her context like this:
 → Background: score this turn, add to archive, maybe search for past context
 The whole system is designed so she gradually gets better at knowing you without you having to repeat yourself — and without the conversation becoming one giant expensive blob of text.
 
-## Technical Overview: Trixxie Memory System
+## Technical Overview: OpenPalAI Memory System
 Storage Backends
 Layer	Backend	Location
 Conversation history	JSON files	data/memory/{safe_uid}/{channel_id}.json

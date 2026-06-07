@@ -373,7 +373,7 @@ _DEBUG_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trixxie — Debug</title>
+<title>OpenPalAI — Debug</title>
 <style>
   :root {
     --bg: #0f0f14; --surface: #1a1a26; --surface2: #22223a; --border: #2d2d44;
@@ -500,7 +500,7 @@ _DEBUG_HTML = """<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>✦ Trixxie — Debug</h1>
+  <h1>✦ OpenPalAI — Debug</h1>
   <span class="pill" id="log-status">● <span id="disconnected">connecting...</span></span>
   <span class="pill" id="sensor-age">sensors: —</span>
   <span class="pill" id="log-count">0 lines</span>

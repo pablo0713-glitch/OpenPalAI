@@ -24,7 +24,7 @@
 
       system-level runtime
 
-2. 🧩 Define the container architecture for Trixxie v1
+2. 🧩 Define the container architecture for OpenPalAI v1
 
 Your agent platform is basically a small constellation of services. The minimal v1 constellation usually includes:
 

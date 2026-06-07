@@ -1,5 +1,5 @@
 ========================================
-  Trixxie — Friendly Companion Agent
+  OpenPalAI
   AI Companion for Second Life & Discord
 ========================================
 
@@ -10,7 +10,7 @@ nearby avatars, reads ambient chat, and responds to IMs or local chat
 triggers — all from a self-hosted server you run yourself.
 
 Full documentation, setup guide, and source code:
-https://github.com/pablo0713-glitch/trixxie-companion-agent
+https://github.com/pablo0713-glitch/openpalai-companion-agent
 
 
 ----------------------------------------
@@ -90,7 +90,7 @@ The short version:
 
   Discord:      tanmojo
 
-  GitHub:       https://github.com/pablo0713-glitch/trixxie-companion-agent
+  GitHub:       https://github.com/pablo0713-glitch/openpalai-companion-agent
                 Open an issue for bugs or feature requests.
 
 

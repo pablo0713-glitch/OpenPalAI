@@ -9,7 +9,7 @@ hybrid_section = """
 To overcome LSL's strict 512KB HTTP-POST dictionary string concatenation memory limits (which often crashed scripts in highly populated SIMs), a **Hybrid Architecture** runs entirely inside `automation.lua`.
 
 ```
-YourAvatar is near Trixxie in Second Life
+YourAvatar is near OpenPalAI in Second Life
         │
         ▼
 automation.lua — SensorLoop() runs on CallbackAfter timers

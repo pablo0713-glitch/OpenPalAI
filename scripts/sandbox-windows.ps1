@@ -41,8 +41,8 @@ if (!(Test-Path (Join-Path $VenvDir "Scripts\python.exe"))) {
 
 & (Join-Path $VenvDir "Scripts\python.exe") -m pip install -r requirements.txt
 
-$env:TRIXXIE_DATA_DIR = $DataDir
-$env:TRIXXIE_ENV_FILE = $EnvFile
+$env:OPENPALAI_DATA_DIR = $DataDir
+$env:OPENPALAI_ENV_FILE = $EnvFile
 $env:MEMORY_DIR = Join-Path $DataDir "memory"
 $env:NOTES_DIR = Join-Path $DataDir "notes"
 $env:LIBRARY_DIR = Join-Path $DataDir "library"

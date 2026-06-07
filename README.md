@@ -1,5 +1,5 @@
-# Trixxie — Friendly Companion Agent
-![Trixxie HUD Banner](trixxiebanner.png)
+# OpenPalAI
+![OpenPalAI HUD Banner](openpalaibanner.png)
 
 A self-hosted AI companion that lives simultaneously in **Second Life** (or OpenSimulator) and **Discord**. Powered by **Claude (Anthropic)**, **OpenAI**, **Gemini**, **Grok**, **OpenRouter**, or any local model via **Ollama** or **LM Studio**. Personality, memory, tools, and platform behavior are configurable through a browser-based **Command Center** that unifies setup, chat, library management, and debugging — no code editing required.
 
@@ -53,8 +53,8 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 
 1. **Clone and install**
    ```bash
-   git clone https://github.com/pablo0713-glitch/trixxie-companion-agent.git
-   cd trixxie-companion-agent
+   git clone https://github.com/pablo0713-glitch/openpalai-companion-agent.git
+   cd openpalai-companion-agent
    python3 -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
    ```
@@ -74,8 +74,8 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 
 1. **Clone**
 ```powershell
-git clone https://github.com/pablo0713-glitch/trixxie-companion-agent.git
-cd trixxie-companion-agent
+git clone https://github.com/pablo0713-glitch/openpalai-companion-agent.git
+cd openpalai-companion-agent
 ```
 2. **Setup Virtual Environment**
 ```powershell
@@ -341,7 +341,7 @@ If you are not using Cool VL Viewer, the LSL HUD provides sensor context and the
 4. Save — it compiles automatically (use Mono compiler)
 5. Right-click the prim → **More → Attach HUD** → any HUD position
 
-When attached, the HUD says `Trixxie Sensory HUD active. Touch to open controls.` in local chat (owner-only). Touch it to open the sensor control panel.
+When attached, the HUD says `OpenPalAI Sensory HUD active. Touch to open controls.` in local chat (owner-only). Touch it to open the sensor control panel.
 
 ### 3. Log your agent's avatar in
 
@@ -357,9 +357,9 @@ No one else sees channel 42 messages. The reply arrives as a private IM.
 
 **Local chat trigger:**
 ```
-Hey Trixxie, what's the vibe in this sim?
+Hey OpenPalAI, what's the vibe in this sim?
 ```
-If your agent's name (or any alias in `TRIGGER_NAMES` at the top of the HUD script) appears in local chat, it responds publicly. Default aliases: `["Trixxie", "Trix", "Trixx"]` — replace with your agent's name.
+If your agent's name (or any alias in `TRIGGER_NAMES` at the top of the HUD script) appears in local chat, it responds publicly. Default aliases: `["OpenPalAI", "OpenPal", "PalAI"]` — replace with your agent's name.
 
 ### 5. HUD sensor controls
 

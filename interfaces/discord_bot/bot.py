@@ -12,7 +12,7 @@ from interfaces.discord_bot.formatters import chunk_text
 logger = logging.getLogger(__name__)
 
 
-class TrixxieBot(discord.Client):
+class OpenPalAIBot(discord.Client):
     def __init__(self, agent: AgentCore, settings: Settings) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
@@ -21,7 +21,7 @@ class TrixxieBot(discord.Client):
         self._settings = settings
 
     async def on_ready(self) -> None:
-        logger.info("Trixxie is online as %s (id: %s)", self.user, self.user.id)
+        logger.info("OpenPalAI is online as %s (id: %s)", self.user, self.user.id)
 
     async def on_message(self, message: discord.Message) -> None:
         # Never respond to ourselves

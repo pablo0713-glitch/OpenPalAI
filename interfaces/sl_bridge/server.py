@@ -98,7 +98,7 @@ def _format_relationship(stats: dict, display_name: str) -> str:
 
 
 def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStore, location_store: LocationStore | None = None, avatar_store: AvatarStore | None = None, session_index: SessionIndex | None = None) -> FastAPI:
-    app = FastAPI(title="Trixxie SL Bridge", docs_url=None, redoc_url=None)
+    app = FastAPI(title="OpenPalAI SL Bridge", docs_url=None, redoc_url=None)
 
     # ---- Conversation endpoint ----
 
@@ -212,6 +212,6 @@ def create_sl_app(agent: AgentCore, settings: Settings, sensor_store: SensorStor
 
     @app.get("/health")
     async def health() -> dict:
-        return {"status": "ok", "name": "trixxie-sl-bridge"}
+        return {"status": "ok", "name": "openpalai-sl-bridge"}
 
     return app

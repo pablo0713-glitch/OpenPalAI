@@ -1,10 +1,10 @@
-# Trixxie Companion Agent — Agent Guide
+# OpenPalAI — Agent Guide
 
 This file is the canonical project guide for coding agents working in this repo. `CLAUDE.md` and `GEMINI.md` intentionally point here so implementation guidance stays in one place.
 
 ## Project Identity
 
-Trixxie is a self-hosted companion-agent framework for Command Center browser chat, Discord, Second Life, and OpenSimulator. It is a personal companion system turned into a reusable framework: multi-companion, multi-platform, memory-heavy, and designed for long-running relationships rather than one-off chat.
+OpenPalAI is a self-hosted companion-agent framework for Command Center browser chat, Discord, Second Life, and OpenSimulator. It is a personal companion system turned into a reusable framework: multi-companion, multi-platform, memory-heavy, and designed for long-running relationships rather than one-off chat.
 
 The main promise is ownership and continuity: the user controls the code, model provider, data, identity files, memory archive, and platform bridges.
 
@@ -109,8 +109,8 @@ Sandbox state:
 
 Path isolation is implemented with:
 
-- `TRIXXIE_DATA_DIR`
-- `TRIXXIE_ENV_FILE`
+- `OPENPALAI_DATA_DIR`
+- `OPENPALAI_ENV_FILE`
 - `MEMORY_DIR`
 - `NOTES_DIR`
 - `LIBRARY_DIR`
@@ -199,8 +199,8 @@ Do not read tool config from `get_agent_config().get("tools")` inside request ha
 
 ## File And Data Path Rules
 
-- Runtime data must respect `TRIXXIE_DATA_DIR`.
-- Runtime `.env` must respect `TRIXXIE_ENV_FILE`.
+- Runtime data must respect `OPENPALAI_DATA_DIR`.
+- Runtime `.env` must respect `OPENPALAI_ENV_FILE`.
 - Do not hardcode `data/...` for config, identity, memory, notes, library, or person map paths.
 - Prefer existing helpers and store APIs:
   - `FileMemoryStore`

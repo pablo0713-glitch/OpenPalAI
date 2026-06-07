@@ -1,5 +1,5 @@
 -- ================================================================
--- Trixxie — Friendly Companion Agent — Cool VL Viewer Automation Script
+-- OpenPalAI — Cool VL Viewer Automation Script
 -- ================================================================
 -- Place this file at: <viewer>/user_settings/automation.lua
 --
@@ -106,7 +106,7 @@ function OnInstantMsg(session_id, origin_id, msg_type, name, text)
     -- Only handle peer-to-peer IMs.
     if msg_type ~= 0 then return end
 
-    -- Ignore messages sent by this avatar (Trixxie herself).
+    -- Ignore messages sent by this avatar (OpenPalAI herself).
     local self_info = GetAgentInfo()
     if self_info and origin_id == self_info["id"] then return end
 

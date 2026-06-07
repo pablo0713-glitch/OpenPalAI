@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """
 Minimal Second Life protocol implementation.
-Handles only what Trixxie needs: login, IM receive, IM send.
+Handles only what OpenPalAI needs: login, IM receive, IM send.
 
 Uses only Python stdlib — no third-party SL libraries required.
 
@@ -96,7 +96,7 @@ def sl_login(firstname: str, lastname: str, password: str) -> LoginResult:
         "last": lastname,
         "passwd": _md5_password(password),
         "start": "last",
-        "channel": "trixxie-bot",
+        "channel": "openpalai-bot",
         "version": "1.0.0",
         "platform": "lnx",
         "mac": "00:00:00:00:00:00",

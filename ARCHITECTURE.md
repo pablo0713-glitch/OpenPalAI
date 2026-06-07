@@ -1,8 +1,8 @@
-# Trixxie — Friendly Companion Agent — Architecture
+# OpenPalAI — Architecture
 
 ## Overview
 
-Trixxie is a stateful AI agent built around a single shared core (`AgentCore`) that serves two platform interfaces simultaneously plus a unified web control surface. The core handles identity, memory, tool use, and the Claude API loop. The interfaces handle platform-specific protocol, formatting, and delivery.
+OpenPalAI is a stateful AI agent built around a single shared core (`AgentCore`) that serves two platform interfaces simultaneously plus a unified web control surface. The core handles identity, memory, tool use, and the Claude API loop. The interfaces handle platform-specific protocol, formatting, and delivery.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -22,7 +22,7 @@ Trixxie is a stateful AI agent built around a single shared core (`AgentCore`) t
                           Browser UI │         │ llHTTPRequest
                    ┌─────────────────▼──┐  ┌──▼─────────────────┐
                    │  Command Center     │  │  LSL HUD            │
-                   │  /command           │  │  (worn by Trixxie)  │
+                   │  /command           │  │  (worn by OpenPalAI)  │
                    │                     │  │                     │
                    │  chat / library /   │  │  /42 msg → POST     │
                    │  setup / debug      │  │  sensor data → POST │
@@ -260,7 +260,7 @@ memory/
   location_store.py LocationStore         Persists SL region/parcel visit history.
                                           Per-user asyncio.Lock. Deduplicates by
                                           region+parcel key.
-  avatar_store.py   AvatarStore           Global registry of SL avatars Trixxie has
+  avatar_store.py   AvatarStore           Global registry of SL avatars OpenPalAI has
                                           spoken with. Single asyncio.Lock (file-level).
                                           record_encounter(user_id, display_name, channel)
                                           upserts on every /sl/message. get_avatar_async()
@@ -335,13 +335,13 @@ interfaces/
                                           produces garbled bytes (ð) without this filter.
 
   discord_bot/
-    bot.py          TrixxieBot            discord.py Client. Responds to @mentions
+    bot.py          OpenPalAIBot            discord.py Client. Responds to @mentions
                                           in servers and all DMs. Ignores own messages.
     formatters.py                         Splits long replies into ≤2,000-char chunks
                                           at sentence/paragraph boundaries.
 
 lsl/
-  companion_bridge.lsl                    LSL script worn as a HUD by Trixxie's avatar.
+  companion_bridge.lsl                    LSL script worn as a HUD by OpenPalAI's avatar.
                                           Streams sensor data to /sl/sensor: avatars,
                                           environment (region, parcel, description, rating
                                           via llRequestSimulatorData/dataserver), objects
@@ -353,7 +353,7 @@ lsl/
                                           llInstantMessage (send_chunked).
                                           Also listens on channel 0 for name-trigger:
                                           any name in TRIGGER_NAMES list (default:
-                                          ["Trixxie", "Trix", "Trixx"]) triggers is_triggered().
+                                          ["OpenPalAI", "OpenPal", "PalAI"]) triggers is_triggered().
                                           POSTs to /sl/message (channel 0), delivers
                                           reply via llSay(0, say_chunked) — visible to
                                           all nearby as public local chat. Applies to all
@@ -786,7 +786,7 @@ session_search(query="Botanical sim recommendations", limit=5)
 → [DISCORD | 2026-04-10 | assistant] "The [Botanical] sim has great atmosphere for..."
 ```
 
-Results are not user-scoped — all of Trixxie's conversation history is searchable, enabling cross-user recall (e.g. "did someone named Flendo ever mention the Botanical sim?"). The `session_query` tool provides structured SQL-style access (speakers mode / turns mode) with date, platform, and name filters.
+Results are not user-scoped — all of OpenPalAI's conversation history is searchable, enabling cross-user recall (e.g. "did someone named Flendo ever mention the Botanical sim?"). The `session_query` tool provides structured SQL-style access (speakers mode / turns mode) with date, platform, and name filters.
 
 ### Semantic (Vector) Memory
 
@@ -827,7 +827,7 @@ Manage modules via the command center at `/command` → Library, via the Chat pa
 
 ## Location Tracking
 
-`LocationStore` persists a log of every distinct region/parcel Trixxie has visited, stored at `data/memory/{safe_user_id}/locations.json`.
+`LocationStore` persists a log of every distinct region/parcel OpenPalAI has visited, stored at `data/memory/{safe_user_id}/locations.json`.
 
 **Write path:** the `/sl/sensor` endpoint calls `location_store.record_visit()` whenever `payload.type == "environment"`. A visit is "new" when the region or parcel differs from the most recent entry. Returning to the same parcel only refreshes `last_visited`. The HUD detects parcel changes via a `last_parcel` global and fires a new env scan within one timer tick (30 s).
 
@@ -928,7 +928,7 @@ Block 2 is intentionally **uncached** so that Block 0's `cache_control: ephemera
 YourAvatar types: /42 hey what do you think of this sim?
         │
         ▼
-Trixxie's HUD (LSL, channel 42 listener)
+OpenPalAI's HUD (LSL, channel 42 listener)
         │  llHTTPRequest POST /sl/message  [X-SL-Secret header]
         ▼
 cloudflared tunnel  →  FastAPI bridge (localhost:8080)
@@ -955,7 +955,7 @@ Private IM arrives in YourAvatar' chat window
 ### Via Cool VL Viewer Lua (direct IM)
 
 ```
-YourAvatar sends a private IM to Trixxie's avatar
+YourAvatar sends a private IM to OpenPalAI's avatar
         │
         ▼
 automation.lua — OnInstantMsg(session_id, origin_id, type=0, ...)
@@ -989,7 +989,7 @@ Reply arrives in YourAvatar' IM window — no /42 required
 To overcome LSL's strict 512KB HTTP-POST dictionary string concatenation memory limits (which often crashed scripts in highly populated SIMs), a **Hybrid Architecture** runs entirely inside `automation.lua`.
 
 ```
-YourAvatar is near Trixxie in Second Life
+YourAvatar is near OpenPalAI in Second Life
         │
         ▼
 automation.lua — SensorLoop() runs on CallbackAfter timers

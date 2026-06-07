@@ -1,6 +1,6 @@
 # Cool VL Viewer — Lua Automation Interface
 
-An alternative to the LSL HUD that uses Cool VL Viewer's native Lua scripting API. This script serves as the primary intelligence bridge for Trixxie, completely overcoming the stringent active-memory limitations (64KB/512KB) of LSL scripts.
+An alternative to the LSL HUD that uses Cool VL Viewer's native Lua scripting API. This script serves as the primary intelligence bridge for OpenPalAI, completely overcoming the stringent active-memory limitations (64KB/512KB) of LSL scripts.
 
 This interface **replaces the LSL HUD for almost all heavy sensor tasks**. It handles Avatars (Radar), Environment, Agent State (RLVa), Chat buffering, and IM conversation paths. 
 
@@ -17,11 +17,11 @@ This interface **replaces the LSL HUD for almost all heavy sensor tasks**. It ha
 
 ## Important — Agent's Viewer Only
 
-This script must be installed on **the agent's viewer** (the viewer logged in as Trixxie's avatar). Do **not** install it on your own viewer. If you run `automation.lua` on your viewer, your viewer will mistakenly intercept and route your IMs.
+This script must be installed on **the agent's viewer** (the viewer logged in as OpenPalAI's avatar). Do **not** install it on your own viewer. If you run `automation.lua` on your viewer, your viewer will mistakenly intercept and route your IMs.
 
 > **⚠️ Running both viewers on the same PC?**
-> Cool VL Viewer shares the `user_settings` folder across all instances. If you use **Option 1** below (renaming the file to `automation.lua`), *both* your viewer and Trixxie's viewer will load the AI script, causing chaotic bridging. 
-> **The Fix:** Delete `automation.lua` from your `user_settings` folder completely, and use **Option 2** to load the script manually *only* on Trixxie's viewer.
+> Cool VL Viewer shares the `user_settings` folder across all instances. If you use **Option 1** below (renaming the file to `automation.lua`), *both* your viewer and OpenPalAI's viewer will load the AI script, causing chaotic bridging. 
+> **The Fix:** Delete `automation.lua` from your `user_settings` folder completely, and use **Option 2** to load the script manually *only* on OpenPalAI's viewer.
 
 ---
 
@@ -53,7 +53,7 @@ Rather than forcing the SL Simulator to process heavy avatar distance calculatio
 
 1. **Continuous Streaming:** The script utilizes a `SensorLoop()` built on `CallbackAfter()` that fires non-blocking asynchronous HTTP POSTs to the Python Backend (`/sl/sensor`) every 4-30 seconds depending on the data type.
 2. **In-Memory Caching:** The Python backend receives these payloads and overwrites the `SensorStore` in memory.
-3. **Reactive AI:** Trixxie remains asleep until spoken to (IM or triggered local chat). Once triggered, `AgentCore` reads the latest snapshot from `SensorStore` instantly, drastically reducing latency compared to proactive scanning.
+3. **Reactive AI:** OpenPalAI remains asleep until spoken to (IM or triggered local chat). Once triggered, `AgentCore` reads the latest snapshot from `SensorStore` instantly, drastically reducing latency compared to proactive scanning.
 
 ### What Lua Handles:
 - **Avatars:** Extracts exact distance and global coordinates via `GetRadarList` and `GetRadarData`. (Requires the viewer Radar floater to be open or configured to background update).
@@ -79,7 +79,7 @@ Cool VL Viewer's `PostHTTP` cannot send custom HTTP headers like `X-SL-Secret`. 
 ## Troubleshooting
 
 **No avatars are appearing in sweeps!**
-- You must keep the Radar floater open in Trixxie's viewer, or configure the radar preferences to update in the background. If the radar is closed, the viewer API returns `nil` to conserve CPU.
+- You must keep the Radar floater open in OpenPalAI's viewer, or configure the radar preferences to update in the background. If the radar is closed, the viewer API returns `nil` to conserve CPU.
 
 **"Authentication failed."**
 - Confirm `SECRET` in the Lua script matches `SL_BRIDGE_SECRET` in `.env`.

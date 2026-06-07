@@ -1,6 +1,6 @@
-# Trixxie — Friendly Companion Agent — Sensory HUD
+# OpenPalAI — Sensory HUD
 
-An LSL HUD script for Second Life that gives Trixxie continuous environmental awareness by streaming sensor data to an external AI bridge server. Trixxie can see who is nearby, what is being said around her, what the environment looks like, and what objects and attachments are present — all in real time.
+An LSL HUD script for Second Life that gives OpenPalAI continuous environmental awareness by streaming sensor data to an external AI bridge server. OpenPalAI can see who is nearby, what is being said around her, what the environment looks like, and what objects and attachments are present — all in real time.
 
 ---
 
@@ -23,9 +23,9 @@ An LSL HUD script for Second Life that gives Trixxie continuous environmental aw
 
    `SECRET` must match `SL_BRIDGE_SECRET` in the server's `.env` file.
 
-2. Create a new object in Second Life, paste the script inside it, and attach it to Trixxie as a HUD (any HUD attachment point works).
+2. Create a new object in Second Life, paste the script inside it, and attach it to OpenPalAI as a HUD (any HUD attachment point works).
 
-3. The HUD announces `Trixxie Sensory HUD active` in local owner-only chat when it is ready. An initial environment scan is sent to the server immediately on attach.
+3. The HUD announces `OpenPalAI Sensory HUD active` in local owner-only chat when it is ready. An initial environment scan is sent to the server immediately on attach.
 
 ---
 
@@ -44,15 +44,15 @@ An LSL HUD script for Second Life that gives Trixxie continuous environmental aw
 | Status | Print current HUD settings to local chat |
 | Close | Dismiss the dialog |
 
-**Talk to Trixxie** on channel 42 by prefixing your message with `/42`:
+**Talk to OpenPalAI** on channel 42 by prefixing your message with `/42`:
 
 ```
-/42 Hey Trixxie, what's the vibe in here?
+/42 Hey OpenPalAI, what's the vibe in here?
 ```
 
-The HUD forwards your message plus any queued local chat lines to the bridge server, and delivers Trixxie's reply back to you via instant message.
+The HUD forwards your message plus any queued local chat lines to the bridge server, and delivers OpenPalAI's reply back to you via instant message.
 
-**Name trigger (local chat):** if a name in `TRIGGER_NAMES` at the top of the script appears anywhere in local chat (channel 0), the HUD fires a `/sl/message` POST and delivers the reply publicly via `llSay(0)`. Default trigger names: `Trixxie`, `Trix`, `Trixx`. Replace with your agent's name. This applies to all nearby avatars, including the owner.
+**Name trigger (local chat):** if a name in `TRIGGER_NAMES` at the top of the script appears anywhere in local chat (channel 0), the HUD fires a `/sl/message` POST and delivers the reply publicly via `llSay(0)`. Default trigger names: `OpenPalAI`, `OpenPal`, `PalAI`. Replace with your agent's name. This applies to all nearby avatars, including the owner.
 
 ---
 
@@ -68,7 +68,7 @@ The HUD forwards your message plus any queued local chat lines to the bridge ser
 
 **Chat buffer:** the HUD keeps a rolling window of the last **10** local chat lines. The buffer is flushed to `/sl/sensor` (type `chat`) every 90 seconds and immediately when a `/42` message is received. The server accumulates up to 30 lines and injects only lines received since the user's last message.
 
-**Avatar scanning:** always scans the full region via `llGetAgentList` and returns the **25 closest avatars** to Trixxie, sorted by distance. The list is capped at 25 regardless of how many avatars are present — this keeps memory stable and prevents stack-heap collisions in crowded regions (Mono compiler, up to 100 avatars).
+**Avatar scanning:** always scans the full region via `llGetAgentList` and returns the **25 closest avatars** to OpenPalAI, sorted by distance. The list is capped at 25 regardless of how many avatars are present — this keeps memory stable and prevents stack-heap collisions in crowded regions (Mono compiler, up to 100 avatars).
 
 ---
 
@@ -91,5 +91,5 @@ The bridge server rejects requests that do not present this header or the matchi
 | Channel | Purpose |
 |---|---|
 | `0` | Local chat monitoring (listen-only) |
-| `42` | Conversation with Trixxie |
+| `42` | Conversation with OpenPalAI |
 | `-7654321` | Internal HUD dialog responses (owner-only) |

@@ -39,16 +39,25 @@ const providerName = document.getElementById('provider-name');
 const modelName = document.getElementById('model-name');
 const uploadNote = document.getElementById('upload-note');
 
-const sessionKey = 'trixxie-command-session';
-const userKey = 'trixxie-command-user';
-const agentKey = 'trixxie-command-agent';
-const preferencesKey = 'trixxie-command-preferences';
-const groupModeKey = 'trixxie-command-group-mode';
-const groupMembersKey = 'trixxie-command-group-members';
-let conversationId = localStorage.getItem(sessionKey) || createSessionId();
-let commandUserId = localStorage.getItem(userKey) || createBrowserUserId();
-let selectedAgentId = localStorage.getItem(agentKey) || '';
-let groupMode = localStorage.getItem(groupModeKey) === '1';
+const sessionKey = 'openpalai-command-session';
+const userKey = 'openpalai-command-user';
+const agentKey = 'openpalai-command-agent';
+const preferencesKey = 'openpalai-command-preferences';
+const groupModeKey = 'openpalai-command-group-mode';
+const groupMembersKey = 'openpalai-command-group-members';
+const legacyCommandPrefix = ['tri', 'xxie'].join('');
+const legacyStorageKeys = {
+  [sessionKey]: `${legacyCommandPrefix}-command-session`,
+  [userKey]: `${legacyCommandPrefix}-command-user`,
+  [agentKey]: `${legacyCommandPrefix}-command-agent`,
+  [preferencesKey]: `${legacyCommandPrefix}-command-preferences`,
+  [groupModeKey]: `${legacyCommandPrefix}-command-group-mode`,
+  [groupMembersKey]: `${legacyCommandPrefix}-command-group-members`,
+};
+let conversationId = getStoredValue(sessionKey) || createSessionId();
+let commandUserId = getStoredValue(userKey) || createBrowserUserId();
+let selectedAgentId = getStoredValue(agentKey) || '';
+let groupMode = getStoredValue(groupModeKey) === '1';
 let groupMembers = loadGroupMembers();
 let libraryModules = [];
 let selectedLibraryId = '';
@@ -219,6 +228,19 @@ function setPanel(panelId) {
   } else {
     openStandalone.href = '/command';
   }
+}
+
+function getStoredValue(key) {
+  const value = localStorage.getItem(key);
+  if (value !== null) {
+    return value;
+  }
+  const legacyKey = legacyStorageKeys[key];
+  const legacyValue = legacyKey ? localStorage.getItem(legacyKey) : null;
+  if (legacyValue !== null) {
+    localStorage.setItem(key, legacyValue);
+  }
+  return legacyValue;
 }
 
 function renderAttachmentList() {
@@ -406,7 +428,7 @@ function renderGroupMembers() {
 
 function loadGroupMembers() {
   try {
-    const raw = localStorage.getItem(groupMembersKey);
+    const raw = getStoredValue(groupMembersKey);
     if (!raw) {
       return new Set();
     }
@@ -727,7 +749,7 @@ function createSessionId() {
 
 function loadPreferences() {
   try {
-    const raw = localStorage.getItem(preferencesKey);
+    const raw = getStoredValue(preferencesKey);
     if (!raw) {
       return {
         sendButtonEnabled: true,

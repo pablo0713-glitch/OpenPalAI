@@ -1,7 +1,7 @@
 services:
-  trixxie-sandbox:
+  openpalai-sandbox:
     build: .
-    container_name: trixxie-sandbox
+    container_name: openpalai-sandbox
     restart: unless-stopped
     ports:
       - "${SANDBOX_BIND:-127.0.0.1:18080}:8080"
@@ -11,5 +11,5 @@ services:
       - ${SANDBOX_DIR:-./.sandbox/linux}/.env:/app/.env:Z
     environment:
       - PYTHONUNBUFFERED=1
-      - TRIXXIE_DATA_DIR=/app/data
-      - TRIXXIE_ENV_FILE=/app/.env
+      - OPENPALAI_DATA_DIR=/app/data
+      - OPENPALAI_ENV_FILE=/app/.env

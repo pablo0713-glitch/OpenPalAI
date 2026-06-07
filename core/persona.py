@@ -821,7 +821,7 @@ def _format_sensor_context(ctx: dict) -> str:
         if layers:
             parts.append(f"System layers: {layers}")
         if parts:
-            lines.append(f"Trixxie's outfit{_age_label(ages, 'clothing')}: {' | '.join(parts)}")
+            lines.append(f"OpenPalAI's outfit{_age_label(ages, 'clothing')}: {' | '.join(parts)}")
 
     rlv = ctx.get("rlv")
     if rlv:

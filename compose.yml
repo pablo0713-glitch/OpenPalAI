@@ -1,7 +1,7 @@
 services:
-  trixxie:
+  openpalai:
     build: .
-    container_name: trixxie
+    container_name: openpalai
     restart: unless-stopped
     ports:
       # Bind to localhost only — Nginx handles public HTTPS access.

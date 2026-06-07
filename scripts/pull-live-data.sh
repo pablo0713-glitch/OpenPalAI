@@ -10,7 +10,7 @@ INCLUDE_CHROMA="${INCLUDE_CHROMA:-0}"
 if [ -z "$REMOTE" ] || [ -z "$REMOTE_PATH" ]; then
   cat >&2 <<'EOF'
 Usage:
-  REMOTE=user@host REMOTE_PATH=/srv/trixxie ./scripts/pull-live-data.sh
+  REMOTE=user@host REMOTE_PATH=/srv/openpalai ./scripts/pull-live-data.sh
 
 Optional:
   TARGET=./.sandbox/linux      Destination sandbox root

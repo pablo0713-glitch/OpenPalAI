@@ -13,7 +13,7 @@ from memory.file_store import _safe
 
 class LocationStore:
     """
-    Persists a running log of every distinct region/parcel Trixxie has visited
+    Persists a running log of every distinct region/parcel OpenPalAI has visited
     in Second Life, stored at {memory_dir}/{safe(user_id)}/locations.json.
 
     Arrival logic

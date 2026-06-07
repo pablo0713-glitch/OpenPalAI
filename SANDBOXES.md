@@ -85,8 +85,8 @@ Use a different port:
 
 ## What Is Isolated
 
-- `TRIXXIE_DATA_DIR` redirects `agent_config.json`, identity files, person map, notes, memory, and library modules.
-- `TRIXXIE_ENV_FILE` redirects the setup wizard's `.env` reads/writes.
+- `OPENPALAI_DATA_DIR` redirects `agent_config.json`, identity files, person map, notes, memory, and library modules.
+- `OPENPALAI_ENV_FILE` redirects the setup wizard's `.env` reads/writes.
 - Linux container sandbox bind-mounts `.sandbox/linux/data` to `/app/data`.
 - Windows sandbox sets `MEMORY_DIR`, `NOTES_DIR`, and `LIBRARY_DIR` to `.sandbox/windows/data/...`.
 
@@ -127,8 +127,8 @@ Requires Windows OpenSSH client and `tar`:
 Optional:
 
 ```powershell
-.\scripts\pull-live-data-windows.ps1 -Remote user@host -RemotePath /srv/trixxie -IncludeEnv
-.\scripts\pull-live-data-windows.ps1 -Remote user@host -RemotePath /srv/trixxie -IncludeChroma
+.\scripts\pull-live-data-windows.ps1 -Remote user@host -RemotePath /srv/openpalai -IncludeEnv
+.\scripts\pull-live-data-windows.ps1 -Remote user@host -RemotePath /srv/openpalai -IncludeChroma
 ```
 
 After pulling, start the sandbox normally:

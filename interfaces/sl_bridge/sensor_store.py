@@ -6,7 +6,7 @@ from typing import Any
 
 class SensorStore:
     """
-    In-memory cache of the latest sensor snapshots from Trixxie's HUD.
+    In-memory cache of the latest sensor snapshots from OpenPalAI's HUD.
     Keyed by region name — sensor data describes the environment, not the user.
 
     Sensor types and their storage behaviour:

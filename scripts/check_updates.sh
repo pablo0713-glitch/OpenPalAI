@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks if the remote main branch has commits ahead of the local checkout.
 # Designed to run as a systemd timer once per day.
-# View results: journalctl -u trixxie-update-check -n 20
+# View results: journalctl -u openpalai-update-check -n 20
 
 set -euo pipefail
 
@@ -45,9 +45,9 @@ if [ "$BEHIND" -gt 0 ]; then
     # if [ -n "${DISCORD_WEBHOOK_URL:-}" ]; then
     #     curl -s -X POST "$DISCORD_WEBHOOK_URL" \
     #         -H "Content-Type: application/json" \
-    #         -d "{\"content\": \"**Trixxie update available** — $BEHIND new commit(s) on \`main\` (current: \`$CURRENT\`, latest: \`$LATEST\`). Pull and rebuild when ready.\"}" \
+    #         -d "{\"content\": \"**OpenPalAI update available** — $BEHIND new commit(s) on \`main\` (current: \`$CURRENT\`, latest: \`$LATEST\`). Pull and rebuild when ready.\"}" \
     #         > /dev/null && echo "  Discord notification sent."
     # fi
 else
-    echo "Trixxie is up to date (commit: $CURRENT)."
+    echo "OpenPalAI is up to date (commit: $CURRENT)."
 fi

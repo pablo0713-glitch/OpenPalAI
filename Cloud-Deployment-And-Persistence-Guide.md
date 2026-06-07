@@ -72,8 +72,8 @@ sudo ufw enable
 ## Step 2 — Clone and Configure
 
 ```bash
-git clone https://github.com/pablo0713-glitch/trixxie-companion-agent.git
-cd trixxie-companion-agent
+git clone https://github.com/pablo0713-glitch/openpalai-companion-agent.git
+cd openpalai-companion-agent
 ```
 
 Create your `.env` file. The easiest way is to run the setup wizard — but since the wizard requires the agent to be running, do a minimal `.env` first:
@@ -156,7 +156,7 @@ sudo systemctl enable --now nginx
 
 ### Create the Nginx config
 
-Create `/etc/nginx/conf.d/trixxie.conf`:
+Create `/etc/nginx/conf.d/openpalai.conf`:
 
 ```nginx
 server {
@@ -212,18 +212,18 @@ The container should restart automatically after reboots. Create a systemd servi
 
 ### Podman — rootless systemd service
 
-Create `/etc/systemd/system/trixxie.service`:
+Create `/etc/systemd/system/openpalai.service`:
 
 ```ini
 [Unit]
-Description=Trixxie AI Companion Agent (Podman)
+Description=OpenPalAI AI Companion Agent (Podman)
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=simple
 User=your-user
-WorkingDirectory=/home/your-user/trixxie-companion-agent
+WorkingDirectory=/home/your-user/openpalai-companion-agent
 ExecStart=/usr/bin/podman compose up
 ExecStop=/usr/bin/podman compose down
 Restart=on-failure
@@ -236,18 +236,18 @@ WantedBy=multi-user.target
 
 ### Docker — systemd service
 
-Create `/etc/systemd/system/trixxie.service`:
+Create `/etc/systemd/system/openpalai.service`:
 
 ```ini
 [Unit]
-Description=Trixxie AI Companion Agent (Docker)
+Description=OpenPalAI AI Companion Agent (Docker)
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 
 [Service]
 Type=simple
 User=your-user
-WorkingDirectory=/home/your-user/trixxie-companion-agent
+WorkingDirectory=/home/your-user/openpalai-companion-agent
 ExecStart=/usr/bin/docker compose up
 ExecStop=/usr/bin/docker compose down
 Restart=on-failure
@@ -262,8 +262,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now trixxie
-sudo systemctl status trixxie
+sudo systemctl enable --now openpalai
+sudo systemctl status openpalai
 ```
 
 ---
@@ -273,7 +273,7 @@ sudo systemctl status trixxie
 When a new version is available:
 
 ```bash
-cd ~/trixxie-companion-agent
+cd ~/openpalai-companion-agent
 git pull
 podman compose build    # or: docker compose build
 podman compose up -d    # or: docker compose up -d
@@ -291,26 +291,26 @@ A daily timer checks whether new commits are available on `main` and logs the re
 
 ### Set up the timer
 
-**Service file** — `/etc/systemd/system/trixxie-update-check.service`:
+**Service file** — `/etc/systemd/system/openpalai-update-check.service`:
 
 ```ini
 [Unit]
-Description=Trixxie Update Check
+Description=OpenPalAI Update Check
 
 [Service]
 Type=oneshot
 User=your-user
-WorkingDirectory=/home/your-user/trixxie-companion-agent
-ExecStart=/home/your-user/trixxie-companion-agent/scripts/check_updates.sh
+WorkingDirectory=/home/your-user/openpalai-companion-agent
+ExecStart=/home/your-user/openpalai-companion-agent/scripts/check_updates.sh
 StandardOutput=journal
 StandardError=journal
 ```
 
-**Timer file** — `/etc/systemd/system/trixxie-update-check.timer`:
+**Timer file** — `/etc/systemd/system/openpalai-update-check.timer`:
 
 ```ini
 [Unit]
-Description=Check for Trixxie updates daily
+Description=Check for OpenPalAI updates daily
 
 [Timer]
 OnCalendar=daily
@@ -323,12 +323,12 @@ WantedBy=timers.target
 **Enable:**
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now trixxie-update-check.timer
+sudo systemctl enable --now openpalai-update-check.timer
 ```
 
 **Check the log:**
 ```bash
-journalctl -u trixxie-update-check -n 20
+journalctl -u openpalai-update-check -n 20
 ```
 
 Example output when an update is available:
@@ -340,7 +340,7 @@ Example output when an update is available:
   Remote: f4e5d6c
 
   To update (Podman):
-    cd /home/your-user/trixxie-companion-agent
+    cd /home/your-user/openpalai-companion-agent
     git pull
     podman compose build
     podman compose up -d
@@ -359,8 +359,8 @@ If you are already running the agent via a plain systemd service (venv + `python
 
 ```bash
 # 1. Stop and disable the old service
-sudo systemctl stop trixxie
-sudo systemctl disable trixxie
+sudo systemctl stop openpalai
+sudo systemctl disable openpalai
 
 # 2. Your data/ and .env are already in place — nothing moves.
 #    The container will mount them from the same location.
@@ -373,7 +373,7 @@ sudo dnf install podman-compose -y
 #    (docker-compose-plugin provides the 'docker compose' subcommand)
 
 # Then build and start the container
-cd ~/trixxie-companion-agent
+cd ~/openpalai-companion-agent
 git pull                        # get Containerfile and compose.yml
 podman compose build            # or: docker compose build
 podman compose up -d            # or: docker compose up -d
@@ -404,17 +404,17 @@ Everything that matters lives in two places on the host:
 **To back up:**
 ```bash
 # On the VPS — tar the data directory
-tar -czf trixxie-backup-$(date +%F).tar.gz data/ .env
+tar -czf openpalai-backup-$(date +%F).tar.gz data/ .env
 
 # Transfer to local machine
-scp your-user@your-vps:~/trixxie-companion-agent/trixxie-backup-*.tar.gz .
+scp your-user@your-vps:~/openpalai-companion-agent/openpalai-backup-*.tar.gz .
 ```
 
 **To restore on a new VPS:**
 ```bash
-git clone https://github.com/pablo0713-glitch/trixxie-companion-agent.git
-cd trixxie-companion-agent
-tar -xzf trixxie-backup-YYYY-MM-DD.tar.gz
+git clone https://github.com/pablo0713-glitch/openpalai-companion-agent.git
+cd openpalai-companion-agent
+tar -xzf openpalai-backup-YYYY-MM-DD.tar.gz
 podman compose build
 podman compose up -d
 ```
@@ -428,15 +428,15 @@ Memory, conversation history, ChromaDB vectors, and all configuration are restor
 | Issue | Signature | Fix |
 |---|---|---|
 | **Container won't start** | `podman compose up` exits immediately | Run `podman compose logs` to see the error. Most common: `.env` missing or malformed. |
-| **Service fails with `status=217/USER`** | `systemctl status trixxie` shows `(code=exited, status=217/USER)` | The `User=your-user` placeholder in the service file was not replaced. Edit `/etc/systemd/system/trixxie.service`, replace every instance of `your-user` with your actual Linux username (`whoami`), then run `sudo systemctl daemon-reload && sudo systemctl restart trixxie`. |
+| **Service fails with `status=217/USER`** | `systemctl status openpalai` shows `(code=exited, status=217/USER)` | The `User=your-user` placeholder in the service file was not replaced. Edit `/etc/systemd/system/openpalai.service`, replace every instance of `your-user` with your actual Linux username (`whoami`), then run `sudo systemctl daemon-reload && sudo systemctl restart openpalai`. |
 | **Service file parse warnings** | `journalctl` shows `Assignment outside of section` or `Missing '='` on line 1 or 2 | The service file has content (a comment, blank line, or stray text) before the `[Unit]` header. The file must begin with `[Unit]` on the very first line — nothing before it. Edit the file and remove any leading lines. |
 | **SELinux blocks volume mount** | Container starts but `data/` is empty or read-only; `journalctl` shows AVC denials | Volume labels in `compose.yml` already include `:Z`. If still failing: `sudo chcon -Rt svirt_sandbox_file_t data/` |
 | **Port 8080 not reachable** | `curl http://localhost:8080` times out | Check `podman compose ps` — container must be running. Check `compose.yml` — port must be `127.0.0.1:8080:8080` or `0.0.0.0:8080:8080`. |
 | **ChromaDB fails to start** | Log: `OSError: libgomp.so.1: cannot open shared object file` | Containerfile already installs `libgomp1`. If you modified the base image, re-add it. |
 | **ONNX model re-downloads every rebuild** | Slow first start after each `compose build` | `data/.cache/` volume mount handles this. Verify `./data/.cache:/root/.cache:Z` is in `compose.yml`. |
 | **SELinux blocking Nginx proxy** | Nginx log: `(13: Permission denied) while connecting to upstream` | `sudo setsebool -P httpd_can_network_connect 1` |
-| **Nginx 60s timeout** | SL replies: `Something went sideways` after exactly 60 seconds | Nginx default read timeout is 60s. Verify `proxy_read_timeout 300s` is in your `trixxie.conf` location block. |
+| **Nginx 60s timeout** | SL replies: `Something went sideways` after exactly 60 seconds | Nginx default read timeout is 60s. Verify `proxy_read_timeout 300s` is in your `openpalai.conf` location block. |
 | **Image upload returns HTML / JSON parse error** | Command Center says `JSON.parse` or browser network tab shows 413 | Nginx default body size is too small for generated images. Add `client_max_body_size 6m;` to the server block and reload Nginx. |
 | **Lua script hitting wrong URL** | SL replies fail instantly; server logs show no incoming request | Your viewer's `automation.lua` has an old `SERVER_URL`. Update it to match the VPS HTTPS address. |
-| **Update check timer never fires** | `journalctl -u trixxie-update-check` is empty | Run `sudo systemctl list-timers trixxie-update-check` — check `NEXT` column. Run the service manually: `sudo systemctl start trixxie-update-check`. |
+| **Update check timer never fires** | `journalctl -u openpalai-update-check` is empty | Run `sudo systemctl list-timers openpalai-update-check` — check `NEXT` column. Run the service manually: `sudo systemctl start openpalai-update-check`. |
 | **`compose build` fails on pip install** | Network error during `pip install` | Transient VPS network issue. Re-run `compose build` — packages already downloaded in a partial layer may still be cached. |

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 """
-Trixxie — Friendly Companion Agent — Second Life Bot Avatar Client
+OpenPalAI — Second Life Bot Avatar Client
 
 Connects the agent to SL as a real avatar using a pure-Python protocol
 implementation (no third-party SL libraries required).
@@ -26,7 +26,7 @@ SL_IM_LIMIT = 1023
 
 
 class SLBotClient:
-    """Connects Trixxie to Second Life as a real avatar account."""
+    """Connects OpenPalAI to Second Life as a real avatar account."""
 
     def __init__(self, agent: AgentCore, settings: Settings) -> None:
         self._agent = agent
@@ -36,7 +36,7 @@ class SLBotClient:
         self._login_result = None
 
     async def start(self) -> None:
-        """Log Trixxie into SL and start listening for IMs."""
+        """Log OpenPalAI into SL and start listening for IMs."""
         logger.info(
             "Logging into Second Life as %s %s...",
             self._settings.sl_bot_firstname,
@@ -58,7 +58,7 @@ class SLBotClient:
             return
 
         logger.info(
-            "Trixxie logged in. Region: %s | Agent: %s",
+            "OpenPalAI logged in. Region: %s | Agent: %s",
             self._login_result.region_name,
             self._login_result.agent_id,
         )

@@ -20,7 +20,7 @@ from core.recall_agent import SemanticRecallAgent
 from core.supporting_agent import make_supporting_adapter
 from core.tools import ToolRegistry
 from interfaces.command_center import create_command_center_router
-from interfaces.discord_bot.bot import TrixxieBot
+from interfaces.discord_bot.bot import OpenPalAIBot
 from interfaces.debug_server import create_debug_router, install_log_handler
 from interfaces.setup_server import create_setup_router, patch_scripts_from_env
 from interfaces.sl_bridge.sensor_store import SensorStore
@@ -266,7 +266,7 @@ async def main() -> None:
 
     # ---- Discord bot ----
     if settings.discord_token:
-        bot = TrixxieBot(agent, settings)
+        bot = OpenPalAIBot(agent, settings)
         tasks.append(asyncio.create_task(bot.start(settings.discord_token)))
         logger.info("Discord bot starting...")
     else:

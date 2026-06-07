@@ -22,7 +22,7 @@ class SemanticRecallAgent(SupportingAgent):
     """
     Specialist agent that wraps vector similarity search with a reasoning pass.
     Raw ChromaDB results are filtered through the agent before returning to the
-    main Trixxie agent, removing noise and adding relevance annotations.
+    main OpenPalAI agent, removing noise and adding relevance annotations.
     """
 
     def __init__(self, adapter: ModelAdapter, vector_store: VectorMemoryStore) -> None:

@@ -153,6 +153,7 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
     async def debug_sessions_users() -> JSONResponse:
         if session_index is None:
             return JSONResponse({"users": []})
+        grouped: dict[tuple[str, str], dict] = {}
         async with aiosqlite.connect(session_index._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -160,7 +161,25 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
                 "FROM sessions GROUP BY user_id, agent_id ORDER BY user_id"
             ) as cur:
                 rows = [dict(row) async for row in cur]
-        return JSONResponse({"users": rows})
+        for row in rows:
+            raw_user_id = row["user_id"]
+            person_id = raw_user_id
+            if agent_core._person_map is not None:
+                person_id = agent_core._person_map.get_person_id(raw_user_id) or raw_user_id
+            key = (person_id, row["agent_id"])
+            item = grouped.setdefault(
+                key,
+                {
+                    "user_id": person_id,
+                    "person_id": person_id,
+                    "agent_id": row["agent_id"],
+                    "turns": 0,
+                    "raw_user_ids": [],
+                },
+            )
+            item["turns"] += row["turns"]
+            item["raw_user_ids"].append(raw_user_id)
+        return JSONResponse({"users": sorted(grouped.values(), key=lambda x: (x["person_id"], x["agent_id"]))})
 
     @router.get("/debug/sessions")
     async def debug_sessions(user_id: str = "", agent_id: str = "") -> JSONResponse:
@@ -168,14 +187,42 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
             return JSONResponse({"error": "Session index not available"})
         settings = agent_core._settings
 
+        raw_user_ids = [user_id]
+        person_id = user_id
+        if agent_core._person_map is not None:
+            resolved = agent_core._person_map.get_person_id(user_id)
+            if resolved:
+                person_id = resolved
+            linked = agent_core._person_map.get_person_user_ids(person_id)
+            raw_user_ids = linked or [user_id]
+
+        async with aiosqlite.connect(session_index._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT DISTINCT user_id FROM sessions WHERE agent_id = ?",
+                (agent_id,),
+            ) as cur:
+                existing_user_ids = [row["user_id"] async for row in cur]
+
+        if agent_core._person_map is not None:
+            matching = [
+                uid for uid in existing_user_ids
+                if (agent_core._person_map.get_person_id(uid) or uid) == person_id
+            ]
+            if matching:
+                raw_user_ids = matching
+
+        placeholders = ",".join("?" for _ in raw_user_ids) or "?"
+        params = [*raw_user_ids, agent_id]
+
         async with aiosqlite.connect(session_index._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT COUNT(*) as total, "
                 "COUNT(CASE WHEN importance = -1.0 THEN 1 END) as unscored, "
                 "AVG(CASE WHEN importance != -1.0 THEN importance END) as avg_score "
-                "FROM sessions WHERE user_id = ? AND agent_id = ?",
-                (user_id, agent_id),
+                f"FROM sessions WHERE user_id IN ({placeholders}) AND agent_id = ?",
+                params,
             ) as cur:
                 row = await cur.fetchone()
                 total = row["total"] if row else 0
@@ -189,25 +236,20 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
                 "       WHEN importance < 0.3 THEN '0.1-0.3' "
                 "       WHEN importance < 0.6 THEN '0.3-0.6' "
                 "       ELSE '0.6-1.0' END as bucket, COUNT(*) as cnt "
-                "FROM sessions WHERE user_id = ? AND agent_id = ? GROUP BY bucket",
-                (user_id, agent_id),
+                f"FROM sessions WHERE user_id IN ({placeholders}) AND agent_id = ? GROUP BY bucket",
+                params,
             ) as cur:
                 distribution = {row["bucket"]: row["cnt"] async for row in cur}
 
             async with db.execute(
                 "SELECT id, role, content, timestamp, display_name, importance, platform "
-                "FROM sessions WHERE user_id = ? AND agent_id = ? AND importance >= 0.6 "
+                f"FROM sessions WHERE user_id IN ({placeholders}) AND agent_id = ? AND importance >= 0.6 "
                 "ORDER BY importance DESC, timestamp DESC LIMIT 10",
-                (user_id, agent_id),
+                params,
             ) as cur:
                 top_turns = [dict(row) async for row in cur]
 
-        # Resolve canonical person_id from user_id; MEMORY.md is stored under person_id
-        person_id = user_id
-        if agent_core._person_map is not None:
-            resolved = agent_core._person_map.get_person_id(user_id)
-            if resolved:
-                person_id = resolved
+        # MEMORY.md is stored under canonical person_id.
         safe = person_id.replace("/", "_").replace(":", "_")
         agent_mem_dir = Path(settings.memory_dir) / "agents" / agent_id / safe
         legacy_mem_dir = Path(settings.memory_dir) / safe
@@ -239,6 +281,8 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
 
         return JSONResponse({
             "user_id": user_id,
+            "person_id": person_id,
+            "raw_user_ids": raw_user_ids,
             "agent_id": agent_id,
             "total_turns": total,
             "unscored": unscored,
@@ -1021,10 +1065,12 @@ async function refreshSessionUsers() {
   if (!agentSel.value && agents[0]) agentSel.value = agents[0];
   const filteredUsers = sessUsersData.filter(u => !selectedAgent || u.agent_id === selectedAgent);
   userSel.innerHTML = '<option value="">— select user —</option>' +
-    filteredUsers.map(u =>
-      '<option value="' + esc(u.user_id) + '"' + (u.user_id === prevUser ? ' selected' : '') + '>' +
-      esc(u.user_id) + ' (' + u.turns + ' turns)</option>'
-    ).join('');
+    filteredUsers.map(u => {
+      const rawCount = (u.raw_user_ids || []).length;
+      const suffix = rawCount > 1 ? ' · ' + rawCount + ' linked IDs' : '';
+      return '<option value="' + esc(u.person_id || u.user_id) + '"' + ((u.person_id || u.user_id) === prevUser ? ' selected' : '') + '>' +
+        esc(u.person_id || u.user_id) + ' (' + u.turns + ' turns' + suffix + ')</option>';
+    }).join('');
   document.getElementById('sess-refresh-time').textContent = 'updated: ' + new Date().toLocaleTimeString();
   if (userSel.value) loadSessions();
 }
@@ -1043,6 +1089,7 @@ async function loadSessions() {
   const unscored = data.unscored || 0;
   const avgScore = data.avg_score != null ? data.avg_score.toFixed(3) : '—';
   const consolidation = data.last_consolidation_fmt || 'Never';
+  const linkedIds = (data.raw_user_ids || []).join(', ');
   const buckets = [
     { key: 'unscored', label: 'Unscored', color: 'var(--faint)' },
     { key: '0.0-0.1', label: '0.0–0.1 filler', color: '#4b5563' },
@@ -1082,6 +1129,8 @@ async function loadSessions() {
     '<div class="sess-stat"><div class="s-label">Last consolidation</div><div class="s-value" style="font-size:12px;margin-top:6px">' + esc(consolidation) + '</div></div>' +
     '</div>' +
     '<div class="sess-dist"><h4>Score distribution</h4>' + distHtml + '</div>' +
+    '<div class="sess-panel" style="margin-top:12px"><h4>Linked platform identities</h4>' +
+    '<div class="sess-memory">' + esc(linkedIds || data.user_id || '') + '</div></div>' +
     '<div class="sess-bottom">' +
     '<div class="sess-panel"><h4>MEMORY.md (curated notes)</h4>' +
     '<div class="sess-memory">' + esc(data.memory_md || '(empty — not consolidated yet)') + '</div></div>' +

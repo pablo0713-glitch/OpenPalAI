@@ -1,30 +1,35 @@
 # OpenPalAI
 ![OpenPalAI HUD Banner](openpalaibanner.png)
 
-A self-hosted AI companion that lives simultaneously in **Second Life** (or OpenSimulator) and **Discord**. Powered by **Claude (Anthropic)**, **OpenAI**, **Gemini**, **Grok**, **OpenRouter**, or any local model via **Ollama** or **LM Studio**. Personality, memory, tools, and platform behavior are configurable through a browser-based **Command Center** that unifies setup, chat, library management, and debugging — no code editing required.
+OpenPalAI is a free, open-source social AI companion framework for people who want the feeling of a personal AI friend without handing the relationship to a hosted subscription service. You bring your own model key or local model, run your own server, and keep control of the agent's memory, personality, documents, and platform connections.
 
-Now with Cloud deployment and persistence! Read the Cloud Deployment & Persistence Guide to learn more.
+The browser-based **Command Center** is the first-class way to meet and manage your companion: chat immediately, upload images or documents, configure persona and memory, create multiple companions, run group chat, and inspect what the agent sees. Second Life, OpenSimulator, and Discord are optional platform bridges connected to the same core agent and memory system.
+
+OpenPalAI is DIY software: free to use, fork, modify, self-host, and experiment with. It is compatible with multiple LLM providers and local model runtimes, but it is not itself a hosted AI service.
+
+For 24/7 hosting, see the Cloud Deployment & Persistence Guide.
+
 ---
 
 ## What Your Agent Can Do
 
 | Capability | Detail |
 |---|---|
-| **Natural conversation** | Discord (@mention or DM) and Second Life (private channel or local chat trigger) |
+| **Natural conversation** | Browser chat first, with optional Discord, Second Life, and OpenSimulator bridges |
 | **Persistent memory** | Remembers facts, preferences, and past conversations across sessions |
 | **Web search** | Current news, prices, music, SL Marketplace listings, anything time-sensitive |
 | **Notes** | Saves and retrieves items on request — shopping lists, sim recommendations, goals |
 | **SL sensor awareness** | Nearby avatars, sim/parcel info, environment, ambient chat, scripted objects, outfit |
 | **SL actions** | Emotes, IMs to specific avatars, local chat, animations, mute/unmute |
-| **Cross-platform context** | Carries context between Discord and Second Life when the same person is linked |
+| **Cross-platform context** | Carries context between Command Center, Discord, and Second Life when the same person is linked |
 | **Memory consolidation** | Background job writes concise notes from long conversation history every 6 hours |
 | **Session search** | Full-text search over all past conversations — the agent can recall specific exchanges |
 | **Semantic recall** | Meaning-based memory search via ChromaDB — finds relevant memories even when the exact words differ |
 | **Importance scoring** | Background agent scores every turn 0–1; only high-value content graduates to long-term memory |
 | **Library modules** | Drop-in reference documents (lore guides, setting rules, style notes) injected into context on demand or always-on |
 | **Supporting agents** | Specialist background agents (Memory Curator, Librarian, Semantic Recall) each with configurable provider and model |
-| **Multiple companions** | Create several distinct companion personas, each with its own identity, tools, and separate memory — switchable in the command center (Second Life and Discord use the default companion only) |
-| **Group chat** | Multiple companions converse in one command-center thread — name a companion (or a configured nickname) to pull it into the conversation; they address each other by name to keep it going |
+| **Multiple companions** | Create several distinct companion personas, each with its own identity, tools, and separate memory — switchable in the Command Center (Second Life and Discord use the default companion only) |
+| **Group chat** | Multiple companions converse in one Command Center thread — name a companion (or a configured nickname) to pull it into the conversation; they address each other by name to keep it going |
 | **Command Center** | Unified web UI for chat, setup, debug, and library management at `/command` |
 | **Document uploads** | Browser chat accepts images, text-like files, PDF, and DOCX; library ingest turns documents into modules in `data/library` |
 
@@ -34,9 +39,11 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 
 | I want… | What to do |
 |---|---|
-| 🎮 **Discord only** | Fast Setup → Wizard (skip Second Life in Step 3) → done |
-| 🌐 **Second Life only** | Fast Setup → Wizard → Second Life Setup |
-| ✨ **Both platforms** | Fast Setup → Wizard → Second Life Setup |
+| 💬 **Browser chat only** | Fast Setup → Command Center → start chatting |
+| 🧭 **Browser chat + setup/debug/library tools** | Fast Setup → Command Center → use Chat, Library, Setup, and Debug in one place |
+| 🎮 **Discord** | Fast Setup → Wizard → enable Discord |
+| 🌐 **Second Life** | Fast Setup → Wizard → Second Life Setup |
+| ✨ **Multiple platforms** | Fast Setup → Wizard → enable the bridges you want |
 | 🔲 **OpenSimulator** | Same as Second Life + one script change — see the OpenSimulator section |
 
 > **Second Life viewers:** Your own viewer can be anything — Firestorm, Alchemy, the official viewer, whatever you prefer. **The agent's avatar must run Cool VL Viewer.** The Lua automation script runs inside Cool VL Viewer's native Lua API and is the primary in-world interface — handling avatars, environment, chat, IMs, and agent state at the viewer level with no LSL memory limits. The LSL HUD remains available as a fallback for the agent's viewer if needed (and is still used for object scanning), but Cool VL Viewer for the agent's avatar will eventually be required.
@@ -53,8 +60,8 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 
 1. **Clone and install**
    ```bash
-   git clone https://github.com/pablo0713-glitch/openpalai-companion-agent.git
-   cd openpalai-companion-agent
+   git clone https://github.com/pablo0713-glitch/OpenPalAI.git
+   cd OpenPalAI
    python3 -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
    ```
@@ -74,8 +81,8 @@ Now with Cloud deployment and persistence! Read the Cloud Deployment & Persisten
 
 1. **Clone**
 ```powershell
-git clone https://github.com/pablo0713-glitch/openpalai-companion-agent.git
-cd openpalai-companion-agent
+git clone https://github.com/pablo0713-glitch/OpenPalAI.git
+cd OpenPalAI
 ```
 2. **Setup Virtual Environment**
 ```powershell
@@ -89,40 +96,30 @@ python check_install.py
 .\run.bat
 ```
 
-**Companion Setup**
+**First Contact In Command Center**
 
 1. **Open the command center** → **[http://localhost:8080/command](http://localhost:8080/command)**
 
-2. **Pick your AI model** — paste your Anthropic, OpenAI, or other provider API key, or point it at your local Ollama instance
+2. **Pick your AI model** — paste a provider API key or point it at your local model runtime
 
-3. **Enable your platforms** — paste your Discord bot token and/or set a bridge secret for Second Life
+3. **Write your companion's persona** — name, personality, identity files. Be specific; vague descriptions produce vague personalities
 
-4. **Write your agent's persona** — name, personality, identity files. Be specific; vague descriptions produce vague personalities
+4. **Save and chat** — use the Chat panel immediately, before connecting any external platform
 
-5. **Save** — the wizard writes your config and the agent begins responding immediately. Use the Chat panel in the same command center to test messages and uploads right away.
+5. **Optional: enable platforms** — add Discord, Second Life, or OpenSimulator when you are ready
 
 > For Second Life, continue to the **Second Life Setup** section after completing setup.
-
-## Persistent Sandboxes
-
-For stable testing without touching your live memory or `.env`, use the sandbox runners:
-
-- Fedora/Linux container sandbox: `./scripts/sandbox-linux.sh up`
-- Windows local sandbox: `.\scripts\sandbox-windows.ps1 up`
-
-Both keep state under `.sandbox/` and are documented in [SANDBOXES.md](SANDBOXES.md).
-When you want realistic local tests, pull VPS state into a sandbox with `scripts/pull-live-data.sh` or `scripts/pull-live-data-windows.ps1`; local `data/` can stay empty.
 
 ## Command Center
 
 The main browser entry point is **[http://localhost:8080/command](http://localhost:8080/command)**.
 
-It combines four workflows in one place:
+It combines the main companion workflows in one place:
 
-- **Chat** — talk to the agent directly from the browser using the real `AgentCore` pipeline.
-- **Library** — browse imported modules, preview content, toggle `always_on`, and delete modules.
-- **Setup** — the existing setup wizard embedded in-place.
-- **Debug** — the existing live debug view embedded in-place.
+- **Chat** — talk to your companion directly from the browser.
+- **Library** — upload, browse, preview, enable, and remove reference documents.
+- **Setup** — configure model access, persona, memory, tools, and platform bridges.
+- **Debug** — inspect logs, prompts, sensors, memory status, and raw message context.
 
 The Chat panel supports:
 
@@ -131,7 +128,7 @@ The Chat panel supports:
 - `PDF` and `DOCX` uploads for question-answering in chat
 - a separate **Add To Library** flow that converts uploaded documents into `data/library/*.md` modules
 
-`/setup` and `/debug` still work directly, but `/command` is the intended browser control surface.
+`/setup` and `/debug` still work directly, but `/command` is the intended platform-agnostic control surface.
 
 ### Multiple companions & group chat
 
@@ -620,6 +617,14 @@ companion-agent/
 
 <br>
 
+**Experimenting, testing, or forking the project:**
+- Use persistent sandboxes when you want to try changes without touching your live `.env`, memory, identity map, library, or conversation history
+- Fedora/Linux container sandbox: `./scripts/sandbox-linux.sh up`
+- Windows local sandbox: `.\scripts\sandbox-windows.ps1 up`
+- Sandbox state lives under `.sandbox/`, so local `data/` can stay empty
+- For realistic local testing, pull VPS state into a sandbox with `scripts/pull-live-data.sh` or `scripts/pull-live-data-windows.ps1`
+- See [SANDBOXES.md](SANDBOXES.md) for the full workflow
+
 **Agent isn't responding on Discord:**
 - Check that `DISCORD_TOKEN` is set in `.env`
 - Confirm **Message Content Intent** is enabled in the Discord Developer Portal (Bot → Privileged Gateway Intents)
@@ -695,7 +700,7 @@ I'm always happy to help — whether you're stuck on setup, hit a bug, or just h
 | Platform | Contact |
 |---|---|
 | **Second Life** | Drop a notecard to **StonedGrits** — IMs can get capped and lost, so a notecard is the safest way to reach me in-world |
-| **Discord** | **tanmojo** |
+| **X** | **@waywardisopod** |
 | **Email** | pablo071372@outlook.com |
 | **GitHub** | [pablo0713-glitch](https://github.com/pablo0713-glitch) — open an issue for bugs or feature requests |
 

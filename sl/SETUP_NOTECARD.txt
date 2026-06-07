@@ -1,35 +1,60 @@
 ========================================
   OpenPalAI
-  AI Companion for Second Life & Discord
+  Self-Hosted Social AI Companion
 ========================================
 
-This framework turns a Second Life avatar into a live AI companion
-powered by Claude (Anthropic), GPT-4, Gemini, Grok, or a local model
-via Ollama. The agent remembers conversations, searches the web, sees
-nearby avatars, reads ambient chat, and responds to IMs or local chat
-triggers — all from a self-hosted server you run yourself.
+OpenPalAI is a free, open-source framework for building self-hosted
+AI companions across Command Center browser chat, Second Life,
+OpenSimulator, and Discord.
+
+You can chat with your companion immediately through the browser-based
+Command Center after setup. Second Life and Discord integrations can be
+added when you are ready.
+
+OpenPalAI supports persistent memory, document/library uploads,
+multi-agent social chat in Command Center, configurable personas,
+web search, SL sensory awareness, and multiple AI providers including
+Claude, OpenAI, Gemini, Grok, OpenRouter, Ollama, and LM Studio.
 
 Full documentation, setup guide, and source code:
-https://github.com/pablo0713-glitch/openpalai-companion-agent
+https://github.com/pablo0713-glitch/OpenPalAI
 
 
 ----------------------------------------
-  VIEWER REQUIREMENT
+  COMMAND CENTER FIRST
 ----------------------------------------
 
-YOU (the user) can log in with any viewer — Firestorm, Alchemy, the
-official SL viewer, whatever you prefer.
+The easiest way to begin is through the Command Center:
 
-THE AGENT'S AVATAR must run Cool VL Viewer.
+  http://localhost:8080/command
 
-The primary in-world interface is a native Lua automation script that
-runs inside Cool VL Viewer on the agent's side. It handles avatars,
-environment, agent state, chat, and direct IMs at the viewer level —
-with no LSL memory limits and no /42 channel needed.
+From Command Center you can:
+
+  - Chat with your companion immediately
+  - Upload images and documents for discussion
+  - Configure model providers, persona, memory, and platforms
+  - Create multiple companion personas
+  - Run group chat between companions
+  - Manage library/reference documents
+  - Inspect debug logs, prompts, sensors, and memory status
+
+
+----------------------------------------
+  SECOND LIFE VIEWER NOTES
+----------------------------------------
+
+YOU (the user chatting with the agent) can log in with any viewer:
+Firestorm, Alchemy, the official SL viewer, or whatever you prefer.
+
+THE AGENT'S AVATAR is designed to run Cool VL Viewer.
+
+The primary in-world interface is a Lua automation script that runs
+inside Cool VL Viewer on the agent's side. It handles IMs, local chat,
+nearby avatars, environment, and avatar state at the viewer level,
+without relying only on LSL memory.
 
 An LSL HUD script is also included for environment object scanning and
-as a fallback if Cool VL Viewer is not available for the agent's avatar.
-Cool VL Viewer for the agent's avatar will eventually be required.
+fallback use.
 
 Cool VL Viewer: https://sldev.free.fr/
 
@@ -51,11 +76,18 @@ The short version:
 1. INSTALL THE SERVER
    Clone the repo, install Python dependencies, and run the setup
    wizard at http://localhost:8080/setup to configure your AI model,
-   persona, and credentials. For 24/7 use, deploy to a VPS using the
-   containerized setup described in:
-   Cloud-Deployment-And-Persistence-Guide.md (in the repo root).
+   persona, memory, platforms, and credentials.
 
-2. INSTALL THE LUA SCRIPT (Cool VL Viewer)
+2. CHAT IN COMMAND CENTER
+   Open http://localhost:8080/command and begin chatting immediately.
+   This works before you connect Second Life or Discord.
+
+3. OPTIONAL: CREATE MORE COMPANIONS
+   Use the setup wizard to add additional companion personas. Command
+   Center supports switching between companions and multi-agent group
+   chat.
+
+4. OPTIONAL: INSTALL THE LUA SCRIPT (Cool VL Viewer)
    The server generates lua/agent_companion.lua with your credentials
    filled in. Copy it to your Cool VL Viewer user_settings folder as
    automation.lua. The viewer loads it automatically on startup.
@@ -64,13 +96,16 @@ The short version:
    about same-PC setups where both your viewer and the agent's viewer
    run on the same machine.
 
-3. INSTALL THE LSL HUD (optional / object scanning)
-   If you are not using Cool VL Viewer, or want object scanning in
-   addition to the Lua script, paste lsl/companion_bridge.lsl into
-   a prim and wear it as a HUD. The server generates this file with
-   your credentials pre-filled.
+5. OPTIONAL: INSTALL THE LSL HUD (object scanning / fallback)
+   Paste lsl/companion_bridge.lsl into a prim and wear it as a HUD.
+   The server generates this file with your credentials pre-filled.
 
-4. TALK TO YOUR AGENT
+6. OPTIONAL: DEPLOY 24/7
+   For always-on use, deploy to a VPS using the
+   containerized setup described in:
+   Cloud-Deployment-And-Persistence-Guide.md (in the repo root).
+
+7. TALK TO YOUR AGENT IN SECOND LIFE
    Private IM (Lua — no channel prefix needed, just IM the avatar):
      Hey, what do you think of this sim?
 
@@ -90,7 +125,7 @@ The short version:
 
   Discord:      tanmojo
 
-  GitHub:       https://github.com/pablo0713-glitch/openpalai-companion-agent
+  GitHub:       https://github.com/pablo0713-glitch/OpenPalAI
                 Open an issue for bugs or feature requests.
 
 

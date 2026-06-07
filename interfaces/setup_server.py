@@ -12,6 +12,8 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
+from memory.person_map import canonical_owner_id, migrate_owner_identity
+
 logger = logging.getLogger(__name__)
 
 _startup_script_updated: bool = False  # set True when startup finds a newer template
@@ -27,7 +29,6 @@ _SETUP_DIR = _ROOT / "setup"
 _PERSON_MAP_PATH = _ROOT / "data" / "person_map.json"
 _NOTES_DIR = _ROOT / "data" / "notes"
 _LIBRARY_DIR = _ROOT / "data" / "library"
-_CANONICAL_OWNER = "SL_Notes"
 _IDENTITY_FILES = ("agent.md", "soul.md", "user.md")
 
 _SENSITIVE_KEYS = {
@@ -291,8 +292,8 @@ def create_setup_router() -> APIRouter:
                 encoding="utf-8",
             )
 
-            # Migrate person_map.json key → SL_Notes and rename notes folder
-            _migrate_owner_key()
+            # Migrate legacy owner keys to the Command Center root identity.
+            _migrate_owner_key(normalized_cfg.get("command_center_name", ""))
 
             # Invalidate persona cache so changes take effect immediately
             from core.persona import reload_agent_config
@@ -535,39 +536,16 @@ def _read_dotenv() -> dict[str, str]:
     return result
 
 
-def _migrate_owner_key() -> None:
-    """Rename any non-SL_Notes key in person_map.json to SL_Notes, move notes folder."""
-    if not _PERSON_MAP_PATH.exists():
-        return
-    try:
-        data: dict = json.loads(_PERSON_MAP_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return
-    old_keys = [k for k in data if k != _CANONICAL_OWNER]
-    if not old_keys:
-        return  # already correct or empty
-    new_data: dict = {_CANONICAL_OWNER: data.get(_CANONICAL_OWNER, [])}
-    for old_key in old_keys:
-        # Merge user_ids (avoid duplicates)
-        for uid in data[old_key]:
-            if uid not in new_data[_CANONICAL_OWNER]:
-                new_data[_CANONICAL_OWNER].append(uid)
-        # Rename notes folder if it exists
-        old_folder = _NOTES_DIR / old_key
-        new_folder = _NOTES_DIR / _CANONICAL_OWNER
-        if old_folder.exists() and not new_folder.exists():
-            shutil.move(str(old_folder), str(new_folder))
-        elif old_folder.exists() and new_folder.exists():
-            # Both exist: move files from old into new (don't overwrite)
-            for f in old_folder.iterdir():
-                dest = new_folder / f.name
-                if not dest.exists():
-                    shutil.move(str(f), str(dest))
-            shutil.rmtree(str(old_folder), ignore_errors=True)
-    _PERSON_MAP_PATH.write_text(
-        json.dumps(new_data, indent=2, ensure_ascii=False), encoding="utf-8"
+def _migrate_owner_key(command_center_name: str) -> None:
+    """Rename legacy owner keys to the Command Center root identity."""
+    canonical_id = canonical_owner_id(command_center_name)
+    migrate_owner_identity(
+        _PERSON_MAP_PATH,
+        canonical_id,
+        memory_dir=_ROOT / "data" / "memory",
+        notes_dir=_NOTES_DIR,
     )
-    logger.info("Migrated person_map keys %s → %s", old_keys, _CANONICAL_OWNER)
+    logger.info("Owner identity root is '%s'", canonical_id)
 
 
 def _write_dotenv(updates: dict[str, str]) -> None:

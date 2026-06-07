@@ -77,6 +77,10 @@ def _friendly_error(exc: Exception) -> str:
     return "Something went sideways on my end. Give me a moment and try again."
 
 
+def _same_display_name(actual: str, expected: str) -> bool:
+    return bool(actual.strip() and expected.strip() and actual.strip().casefold() == expected.strip().casefold())
+
+
 def _get_role(turn: dict) -> str:
     return turn.get("role") if isinstance(turn, dict) else getattr(turn, "role", "")
 
@@ -246,6 +250,45 @@ class AgentCore:
             self._adapter_cache[key] = adapter
         return adapter
 
+    def _maybe_link_owner_identity(self, context: MessageContext) -> None:
+        if self._person_map is None:
+            return
+
+        if context.platform == "command":
+            linked = self._person_map.link_user_id(
+                self._person_map.canonical_owner(),
+                context.user_id,
+            )
+            if linked:
+                logger.info(
+                    "Linked command identity '%s' to canonical owner '%s'",
+                    context.user_id,
+                    self._person_map.canonical_owner(),
+                )
+            return
+
+        if context.platform == "sl":
+            expected_name = self._settings.owner_sl_name
+        elif context.platform == "discord":
+            expected_name = self._settings.owner_discord_name
+        else:
+            return
+
+        if not _same_display_name(context.display_name, expected_name):
+            return
+
+        linked = self._person_map.link_user_id(
+            self._person_map.canonical_owner(),
+            context.user_id,
+        )
+        if linked:
+            logger.info(
+                "Linked %s identity '%s' to canonical owner '%s'",
+                context.platform,
+                context.user_id,
+                self._person_map.canonical_owner(),
+            )
+
     async def handle_message(
         self,
         message: str | list[dict[str, Any]],
@@ -267,6 +310,7 @@ class AgentCore:
 
         memory_files = ""
         stm_bridge = ""
+        self._maybe_link_owner_identity(context)
         if self._person_map:
             person_id = self._person_map.get_person_id(context.user_id) or context.user_id
             context.person_id = person_id

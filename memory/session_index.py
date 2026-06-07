@@ -231,6 +231,23 @@ class SessionIndex:
             logger.warning("SessionIndex.get_unscored_turns failed: %s", exc)
             return []
 
+    async def get_users_with_unscored_turns(self) -> list[dict]:
+        """Return user/agent pairs that still have unscored turns."""
+        await self._ensure_ready()
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT user_id, agent_id, COUNT(*) AS unscored "
+                    "FROM sessions WHERE importance = -1.0 "
+                    "GROUP BY user_id, agent_id ORDER BY user_id, agent_id"
+                ) as cur:
+                    rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.warning("SessionIndex.get_users_with_unscored_turns failed: %s", exc)
+            return []
+
     async def get_interaction_stats(self, user_id: str, *, agent_id: str = "") -> dict:
         """Return visit frequency stats for a user.
 

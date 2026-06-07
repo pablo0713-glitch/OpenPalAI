@@ -29,7 +29,7 @@ from memory.file_store import FileMemoryStore
 from memory.avatar_store import AvatarStore
 from memory.library_store import LibraryStore
 from memory.location_store import LocationStore
-from memory.person_map import PersonMap
+from memory.person_map import PersonMap, canonical_owner_id, migrate_owner_identity
 from memory.session_index import SessionIndex
 from memory.vector_store import VectorMemoryStore
 
@@ -185,7 +185,14 @@ async def main() -> None:
     )
     rate_limiter = RateLimiter(settings.rate_limit_capacity, settings.rate_limit_refill_rate)
 
-    person_map = PersonMap.load(PERSON_MAP_PATH)
+    owner_person_id = canonical_owner_id(agent_cfg.get("command_center_name"))
+    migrate_owner_identity(
+        PERSON_MAP_PATH,
+        owner_person_id,
+        memory_dir=settings.memory_dir,
+        notes_dir=settings.notes_dir,
+    )
+    person_map = PersonMap.load(PERSON_MAP_PATH, canonical_owner=owner_person_id)
     logger.info("Person map loaded: %d person(s) linked", len(person_map.all_persons()))
 
     consolidator = MemoryConsolidator(
@@ -233,6 +240,9 @@ async def main() -> None:
         # This prevents a 6-hour delay after every restart.
         elapsed = time.time() - _last_consolidation_time()
         initial_wait = max(0.0, CONSOLIDATION_INTERVAL_SECS - elapsed)
+        if await session_index.get_users_with_unscored_turns():
+            logger.info("Unscored memory turns found on startup; running consolidation immediately.")
+            initial_wait = 0.0
         if initial_wait < 60:
             initial_wait = 0.0  # overdue — run immediately
         if initial_wait > 0:

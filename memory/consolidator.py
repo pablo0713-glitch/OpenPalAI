@@ -62,15 +62,61 @@ class MemoryConsolidator:
         self._memory_dir = Path(memory_dir) if memory_dir else Path(notes_dir).parent / "memory"
 
     async def run_all(self) -> None:
+        targets: dict[tuple[str, str], set[str]] = {}
+
         for agent in list_companion_agents():
             for person_id in self._person_map.all_persons():
-                try:
-                    await self._check_and_consolidate(agent["id"], person_id)
-                except Exception:
-                    logger.exception("Consolidation failed for agent '%s' person '%s'", agent["id"], person_id)
+                targets.setdefault((agent["id"], person_id), set())
 
-    async def _check_and_consolidate(self, agent_id: str, person_id: str) -> None:
+        if self._session_index is not None:
+            for row in await self._session_index.get_users_with_unscored_turns():
+                user_id = row.get("user_id", "")
+                agent_id = row.get("agent_id", "")
+                if not user_id or not agent_id:
+                    continue
+                person_id = self._person_map.get_person_id(user_id) or user_id
+                if person_id != user_id:
+                    self._person_map.link_user_id(person_id, user_id)
+                targets.setdefault((agent_id, person_id), set()).add(user_id)
+
+        for (agent_id, person_id), extra_user_ids in sorted(targets.items()):
+            try:
+                await self._check_and_consolidate(agent_id, person_id, extra_user_ids=extra_user_ids)
+            except Exception:
+                logger.exception("Consolidation failed for agent '%s' person '%s'", agent_id, person_id)
+
+    def _user_ids_for_person(self, person_id: str, extra_user_ids: set[str] | None = None) -> list[str]:
         user_ids = self._person_map.get_person_user_ids(person_id)
+        merged = list(dict.fromkeys([*user_ids, *(extra_user_ids or set())]))
+        return merged or [person_id]
+
+    async def _score_unscored_turns(self, agent_id: str, user_ids: list[str]) -> None:
+        if not self._curator or not self._session_index:
+            return
+
+        for uid in user_ids:
+            unscored = await self._session_index.get_unscored_turns(uid, limit=200, agent_id=agent_id)
+            if unscored:
+                scores = await self._curator.score_turns(unscored)
+                await self._session_index.set_importance_batch(scores)
+                logger.info(
+                    "Curator scored %d/%d turns for '%s'",
+                    len(scores), len(unscored), uid,
+                )
+
+    async def _check_and_consolidate(
+        self,
+        agent_id: str,
+        person_id: str,
+        *,
+        extra_user_ids: set[str] | None = None,
+    ) -> None:
+        user_ids = self._user_ids_for_person(person_id, extra_user_ids)
+
+        # Importance scoring is useful even when there is not enough retained
+        # JSON history to write MEMORY.md yet.
+        await self._score_unscored_turns(agent_id, user_ids)
+
         all_convs: list[ConversationFile] = []
         for uid in user_ids:
             all_convs.extend(await self._store.get_all_conversations(uid, agent_id=agent_id))
@@ -98,19 +144,7 @@ class MemoryConsolidator:
             f"{agent_id}:{person_id}", len(all_convs), total, self._threshold,
         )
 
-        # Score unscored turns for all user_ids linked to this person
-        if self._curator and self._session_index:
-            for uid in user_ids:
-                unscored = await self._session_index.get_unscored_turns(uid, limit=200, agent_id=agent_id)
-                if unscored:
-                    scores = await self._curator.score_turns(unscored)
-                    await self._session_index.set_importance_batch(scores)
-                    logger.info(
-                        "Curator scored %d/%d turns for '%s'",
-                        len(scores), len(unscored), uid,
-                    )
-
-        await self._consolidate(agent_id, person_id, all_convs)
+        await self._consolidate(agent_id, person_id, all_convs, extra_user_ids=extra_user_ids)
 
         for uid in user_ids:
             convs = await self._store.get_all_conversations(uid, agent_id=agent_id)
@@ -122,10 +156,17 @@ class MemoryConsolidator:
             person_id, self._keep_turns,
         )
 
-    async def _consolidate(self, agent_id: str, person_id: str, convs: list[ConversationFile]) -> None:
+    async def _consolidate(
+        self,
+        agent_id: str,
+        person_id: str,
+        convs: list[ConversationFile],
+        *,
+        extra_user_ids: set[str] | None = None,
+    ) -> None:
         # Build transcript filtered to high-importance turns when curator is available
         if self._curator and self._session_index:
-            user_ids = self._person_map.get_person_user_ids(person_id)
+            user_ids = self._user_ids_for_person(person_id, extra_user_ids)
             high_importance: set[str] = set()
             for uid in user_ids:
                 rows = await self._session_index.get_high_importance_turns(

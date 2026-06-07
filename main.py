@@ -203,6 +203,7 @@ async def main() -> None:
         memory_dir=settings.memory_dir,
         curator=curator,
         session_index=session_index,
+        vector_store=vector_store,
         importance_threshold=settings.importance_threshold,
     )
 
@@ -240,8 +241,11 @@ async def main() -> None:
         # This prevents a 6-hour delay after every restart.
         elapsed = time.time() - _last_consolidation_time()
         initial_wait = max(0.0, CONSOLIDATION_INTERVAL_SECS - elapsed)
-        if await session_index.get_users_with_unscored_turns():
-            logger.info("Unscored memory turns found on startup; running consolidation immediately.")
+        if (
+            await session_index.get_users_with_unscored_turns()
+            or await session_index.get_users_with_pending_consolidation(settings.importance_threshold)
+        ):
+            logger.info("Memory backlog found on startup; running consolidation immediately.")
             initial_wait = 0.0
         if initial_wait < 60:
             initial_wait = 0.0  # overdue — run immediately

@@ -90,6 +90,31 @@ class VectorMemoryStore:
         except Exception as exc:
             logger.warning("VectorMemoryStore.add_turn failed (id=%s): %s", session_id, exc)
 
+    async def set_importance_batch(self, person_id: str, scores: dict[int, float]) -> None:
+        """Update existing vector metadata with scored importance values."""
+        if not scores:
+            return
+        ids = [str(session_id) for session_id in scores]
+
+        def _update():
+            col = self._get_collection(person_id)
+            existing = col.get(ids=ids, include=["metadatas"])
+            found_ids = existing.get("ids", [])
+            metadatas = existing.get("metadatas", [])
+            if not found_ids:
+                return
+            updated = []
+            for doc_id, meta in zip(found_ids, metadatas):
+                next_meta = dict(meta or {})
+                next_meta["importance"] = max(0.0, min(1.0, float(scores[int(doc_id)])))
+                updated.append(next_meta)
+            col.update(ids=found_ids, metadatas=updated)
+
+        try:
+            await self._run(_update)
+        except Exception as exc:
+            logger.warning("VectorMemoryStore.set_importance_batch failed: %s", exc)
+
     async def semantic_search(
         self,
         person_id: str,

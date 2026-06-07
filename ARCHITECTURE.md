@@ -214,12 +214,15 @@ memory/
                                           1. Calls curator.score_turns() on all unscored
                                           turns per user_id, writes scores via
                                           session_index.set_importance_batch() in one tx.
-                                          2. Filters transcript to high-importance turns
-                                          (threshold default 0.6).
+                                          2. Filters durable sessions.db rows to
+                                          unconsolidated high-importance turns
+                                          (threshold default 0.4).
                                           3. curator.should_consolidate() gate — skips if
                                           the curator says nothing new is worth adding.
                                           Keeps markdown audit trail at
-                                          data/notes/SL_Notes/memories_YYYY-MM-DD.md.
+                                          data/notes/{agent_id}/{person_id}/
+                                          memories_YYYYMMDDTHHMMSSZ.md plus
+                                          consolidation_runs.jsonl provenance.
   session_index.py  SessionIndex          SQLite FTS5 index of all conversation turns.
                                           WAL mode enabled for concurrent read + write.
                                           Lazy-init; schema created on first write.
@@ -286,7 +289,7 @@ data/
   memory/known_avatars.json               Global AvatarStore registry. Maps sl_{uuid} →
                                           {display_name, first_seen, last_seen, channels[]}.
                                           Not per-user — one file covering all SL avatars.
-  memory/{safe_person_id}/
+  memory/agents/{agent_id}/{safe_person_id}/
     MEMORY.md                             Agent-curated notes about context and world
                                           (~2,000 chars max; §-delimited entries).
     USER.md                               Owner preferences, style, background
@@ -294,13 +297,15 @@ data/
   memory/sessions.db                      SQLite FTS5 index + importance scores.
                                           WAL mode. Columns: id, user_id, channel_id,
                                           platform, role, content, timestamp, display_name,
-                                          importance (REAL, default -1.0 = unscored).
+                                          importance (REAL, default -1.0 = unscored),
+                                          consolidated_at, consolidation_run_id.
   memory/chroma/                          ChromaDB persistent vector store.
                                           One collection per person_id: mem_{safe_id}.
                                           Populated by backfill task on startup + live
                                           append_turn() indexing.
-  notes/SL_Notes/
-    memories_YYYY-MM-DD.md                Consolidated memory notes audit trail.
+  notes/{agent_id}/{person_id}/
+    memories_YYYYMMDDTHHMMSSZ.md          Consolidated memory notes audit trail.
+    consolidation_runs.jsonl              Provenance manifest with source session IDs.
 
 interfaces/
   sl_bridge/
@@ -437,8 +442,9 @@ interfaces/
                                           POST /setup/config — writes .env and
                                           agent_config.json (including supporting_agents
                                           block), calls reload_agent_config(), then runs
-                                          _migrate_owner_key() which renames any non-SL_Notes
-                                          key in person_map.json to SL_Notes and moves the
+                                          _migrate_owner_key() which renames legacy
+                                          owner keys in person_map.json to the Command
+                                          Center root identity and moves the
                                           notes folder accordingly.
                                           POST /setup/update-scripts — patches LSL + Lua.
                                           GET /setup/scripts — returns script content +
@@ -499,7 +505,8 @@ interfaces/
 
 ```json
 {
-  "SL_Notes": [
+  "Pablo": [
+    "command_user_<browser-id>",
     "discord_<snowflake>",
     "sl_<uuid>"
   ]
@@ -738,22 +745,23 @@ Every turn in `sessions.db` carries an `importance` score (REAL, sentinel -1.0 =
 | 0.6 | Notable — strong preference, ongoing project, revealed need |
 | 1.0 | Pivotal — name, life event, explicit request to remember |
 
-The `importance_threshold` setting (default 0.6) controls what graduates to long-term memory. Turns that score below threshold are kept in FTS5/vector indexes but excluded from consolidation transcripts.
+The `importance_threshold` setting (default 0.4) controls what graduates to long-term memory. Turns that score below threshold are kept in FTS5/vector indexes but excluded from consolidation transcripts.
 
 ### Memory Consolidation
 
 `MemoryConsolidator` runs as a background task every 6 hours. The timer is restart-resilient — startup reads `.last_consolidation` timestamp from `data/memory/` and sleeps only the remaining interval.
 
-Consolidation triggers when the **total turns across all files** for a person exceeds **30**. When triggered, it:
+Consolidation triggers when the **pending unconsolidated high-importance rows** for a person exceed **30** (or **15** before the first `MEMORY.md`). The source of truth is `sessions.db`; JSON conversation files are only recent working history. When triggered, it:
 
 1. Calls `MemoryCuratorAgent.score_turns()` on all unscored turns for each linked user_id
-2. Writes scores in one transaction via `SessionIndex.set_importance_batch()`
-3. Builds a transcript filtered to high-importance turns (≥ threshold)
-4. `curator.should_consolidate()` gate — if the curator says nothing new is worth adding, stops here
+2. Writes scores in one transaction via `SessionIndex.set_importance_batch()` and updates Chroma metadata via `VectorMemoryStore.set_importance_batch()`
+3. Builds a transcript from rows where `importance >= threshold` and `consolidated_at = ''`
+4. `curator.should_consolidate()` gate — if the curator says nothing new is worth adding, marks those source rows consolidated and stops here
 5. Calls the main model to write first-person bullet-point memory notes
 6. Extracts each bullet and appends it to `MEMORY.md` via `_add_entry()` (oldest trimmed to maintain cap)
-7. Keeps a full audit trail at `data/notes/SL_Notes/memories_YYYY-MM-DD.md`
-8. Trims all source conversation files to their most recent **10 turns**
+7. Keeps a full audit trail at `data/notes/{agent_id}/{person_id}/memories_YYYYMMDDTHHMMSSZ.md` plus `consolidation_runs.jsonl`
+8. Marks source rows with `consolidated_at` and `consolidation_run_id`
+9. Trims source conversation files to their most recent **10 turns**
 
 ### Short-Term Memory Bridge (STM)
 

@@ -455,21 +455,24 @@ Your agent maintains several layers of memory that work together automatically:
 |---|---|---|
 | **Conversation history** | JSON files | Recent turns per user and channel — automatically trimmed to last 20 |
 | **Curated notes** | `MEMORY.md` per person | ~2,000 chars — the agent writes its own bullet-point notes about you |
+| **Identity map** | `person_map.json` | Links Command Center, Discord, and SL IDs to one canonical person |
 | **Identity files** | `agent.md`, `soul.md`, `user.md` | Your preferences, the agent's personality, loaded every session |
 | **Notes tool** | JSON | Free-form notes saved and retrieved on request |
-| **Session archive** | SQLite FTS5 | Every turn ever — full-text searchable by keyword |
+| **Session archive** | SQLite FTS5 | Every turn ever — full-text searchable, importance-scored, and consolidation-tracked |
 | **Semantic memory** | ChromaDB vectors | Meaning-based search — finds relevant memories even when words differ |
 | **Library modules** | Markdown files | Lore guides, setting rules, reference docs — injected on demand or always-on |
 
 ### How consolidation works
 
-After 30+ total turns with a person, a background pipeline runs every 6 hours:
+Every 6 hours, a background pipeline checks the durable session archive. It no longer depends on trimmed JSON chat files, so long-running conversations can be tested over days and months without losing consolidation candidates.
 
 1. **Score** — the Memory Curator agent rates every unscored turn 0.0–1.0 (filler → pivotal)
-2. **Gate** — the curator decides if there's anything new worth writing down
-3. **Filter** — only turns scored ≥ 0.6 are included in the consolidation transcript
-4. **Write** — the main model writes journal-style notes and appends them to `MEMORY.md`
-5. **Trim** — conversation files are cut back to 10 turns to keep context lean
+2. **Sync** — scores are written to SQLite and mirrored into ChromaDB metadata
+3. **Filter** — unconsolidated rows at or above `IMPORTANCE_THRESHOLD` (default `0.4`) become the transcript
+4. **Gate** — the curator decides if there's anything new worth writing down
+5. **Write** — the main model writes journal-style notes and appends them to `MEMORY.md`
+6. **Track** — source rows are marked with `consolidated_at` / `consolidation_run_id`, with provenance in `consolidation_runs.jsonl`
+7. **Trim** — recent conversation files are cut back to 10 turns to keep live context lean
 
 ### Using library modules
 
@@ -523,6 +526,7 @@ While the agent is running, **[http://localhost:8080/debug](http://localhost:808
 | **Logs** | Real-time Python log stream. Filter by level and logger name. |
 | **Sensors** | Live sensor snapshot per region — raw JSON and formatted view. Auto-refreshes every 5s. |
 | **Prompts & Exchanges** | The exact system prompt and messages array sent for each user. Auto-refreshes every 10s. |
+| **Memory Pipeline** | Canonical person groups, linked platform IDs, scoring distribution, pending notes, and `MEMORY.md`. |
 
 Use this to verify sensor data is arriving, inspect what the model actually sees, and diagnose unexpected behavior.
 
@@ -564,7 +568,7 @@ companion-agent/
 │   ├── session_index.py         SQLite FTS5 full-text index + importance scores
 │   ├── vector_store.py          ChromaDB semantic vector store
 │   ├── library_store.py         Library module filesystem layer
-│   ├── person_map.py            Links Discord and SL identities to one canonical person
+│   ├── person_map.py            Links Command Center, Discord, and SL identities to one canonical person
 │   └── location_store.py        SL region/parcel visit history
 ├── interfaces/
 │   ├── discord_bot/             Discord interface (discord.py)
@@ -585,10 +589,16 @@ companion-agent/
     ├── agent_config.json        Persona, tools, platform awareness, supporting agent models
     ├── identity/                agent.md, soul.md, user.md (written by wizard)
     ├── library/                 Library module Markdown files (*.md with front-matter)
+    ├── person_map.json          Canonical person → command/Discord/SL identity links
+    ├── notes/
+    │   └── {agent_id}/{person}/ Consolidation audits + provenance manifests
     └── memory/
         ├── sessions.db          SQLite FTS5 index + importance scores
         ├── chroma/              ChromaDB vector store (semantic memory)
-        └── {user_id}/           JSON conversations, MEMORY.md, facts per person
+        ├── groups/              Command Center group-chat transcripts
+        └── agents/{agent_id}/
+            ├── {user_id}/       Recent JSON conversations + STM per platform ID
+            └── {person}/        MEMORY.md + USER.md curated long-term notes
 ```
 
 </details>
@@ -657,8 +667,9 @@ All configuration lives in `.env` (created by the wizard). Reference:
 | `SEARCH_PROVIDER` | If web search enabled | `brave` or `serper` |
 | `SEARCH_API_KEY` | If web search enabled | Brave or Serper API key |
 | `MEMORY_MAX_HISTORY` | No | Turns kept per conversation file (default: 20) |
-| `OWNER_NAME` | No | Your name — used in memory notes and context |
-| `IMPORTANCE_THRESHOLD` | No | Minimum importance score for long-term memory (default: 0.6) |
+| `OWNER_SL_NAME` | No | Your Second Life name — used to auto-link SL identity to the Command Center root |
+| `OWNER_DISCORD_NAME` | No | Your Discord display name — used to auto-link Discord identity to the Command Center root |
+| `IMPORTANCE_THRESHOLD` | No | Minimum importance score for long-term memory (default: 0.4) |
 | `IMPORTANCE_SCORE_BATCH_SIZE` | No | Turns scored per curator API call (default: 20) |
 | `LIBRARY_DIR` | No | Path to library modules directory (default: `./data/library`) |
 | `LIBRARY_ALWAYS_ON_CAP` | No | Max chars of always-on library content per message (default: 4000) |

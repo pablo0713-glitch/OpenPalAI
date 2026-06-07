@@ -63,6 +63,11 @@ _MIGRATE_AGENT_ID_STMTS = [
     "ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''",
 ]
 
+_MIGRATE_CONSOLIDATION_STMTS = [
+    "ALTER TABLE sessions ADD COLUMN consolidated_at TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE sessions ADD COLUMN consolidation_run_id TEXT NOT NULL DEFAULT ''",
+]
+
 _SEARCH_SQL = """
 SELECT s.agent_id, s.platform, s.channel_id, s.timestamp, s.role, s.user_id, s.display_name,
        snippet(sessions_fts, 0, '[', ']', '…', 20) AS snippet
@@ -117,6 +122,7 @@ class SessionIndex:
                         except Exception as exc:
                             logger.warning("Importance migration step failed (may be harmless): %s", exc)
                     await db.commit()
+                    cols = {row[1] async for row in await db.execute("PRAGMA table_info(sessions)")}
 
                 if "agent_id" not in cols:
                     logger.info("SessionIndex: migrating sessions.db to add agent_id column")
@@ -125,6 +131,16 @@ class SessionIndex:
                             await db.execute(stmt)
                         except Exception as exc:
                             logger.warning("agent_id migration step failed (may be harmless): %s", exc)
+                    await db.commit()
+                    cols = {row[1] async for row in await db.execute("PRAGMA table_info(sessions)")}
+
+                if "consolidated_at" not in cols or "consolidation_run_id" not in cols:
+                    logger.info("SessionIndex: migrating sessions.db to add consolidation tracking columns")
+                    for stmt in _MIGRATE_CONSOLIDATION_STMTS:
+                        try:
+                            await db.execute(stmt)
+                        except Exception as exc:
+                            logger.warning("consolidation tracking migration step failed (may be harmless): %s", exc)
                     await db.commit()
 
             self._ready = True
@@ -248,6 +264,24 @@ class SessionIndex:
             logger.warning("SessionIndex.get_users_with_unscored_turns failed: %s", exc)
             return []
 
+    async def get_users_with_pending_consolidation(self, threshold: float = 0.6) -> list[dict]:
+        """Return user/agent pairs with scored high-importance rows not yet consolidated."""
+        await self._ensure_ready()
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT user_id, agent_id, COUNT(*) AS pending "
+                    "FROM sessions WHERE importance >= ? AND consolidated_at = '' "
+                    "GROUP BY user_id, agent_id ORDER BY user_id, agent_id",
+                    (threshold,),
+                ) as cur:
+                    rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.warning("SessionIndex.get_users_with_pending_consolidation failed: %s", exc)
+            return []
+
     async def get_interaction_stats(self, user_id: str, *, agent_id: str = "") -> dict:
         """Return visit frequency stats for a user.
 
@@ -304,6 +338,56 @@ class SessionIndex:
         except Exception as exc:
             logger.warning("SessionIndex.get_high_importance_turns failed: %s", exc)
             return []
+
+    async def get_unconsolidated_high_importance_turns(
+        self,
+        user_ids: list[str],
+        threshold: float = 0.6,
+        *,
+        agent_id: str = "",
+        limit: int = 300,
+    ) -> list[dict]:
+        """Return high-importance rows that have not yet been considered for MEMORY.md."""
+        user_ids = [uid for uid in dict.fromkeys(user_ids) if uid]
+        if not user_ids:
+            return []
+        await self._ensure_ready()
+        placeholders = ",".join("?" for _ in user_ids)
+        params = [*user_ids, agent_id, threshold, limit]
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT id, agent_id, user_id, role, content, timestamp, platform, "
+                    "display_name, importance "
+                    f"FROM sessions WHERE user_id IN ({placeholders}) "
+                    "AND agent_id = ? AND importance >= ? AND consolidated_at = '' "
+                    "ORDER BY timestamp ASC, id ASC LIMIT ?",
+                    params,
+                ) as cur:
+                    rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+        except Exception as exc:
+            logger.warning("SessionIndex.get_unconsolidated_high_importance_turns failed: %s", exc)
+            return []
+
+    async def mark_consolidated(self, session_ids: list[int], run_id: str, timestamp: str) -> None:
+        """Mark session rows as having been considered by a consolidation run."""
+        session_ids = [int(sid) for sid in dict.fromkeys(session_ids) if sid]
+        if not session_ids:
+            return
+        await self._ensure_ready()
+        try:
+            async with aiosqlite.connect(self._db_path) as db:
+                await db.execute("PRAGMA journal_mode=WAL")
+                for session_id in session_ids:
+                    await db.execute(
+                        "UPDATE sessions SET consolidated_at = ?, consolidation_run_id = ? WHERE id = ?",
+                        (timestamp, run_id, session_id),
+                    )
+                await db.commit()
+        except Exception as exc:
+            logger.warning("SessionIndex.mark_consolidated failed: %s", exc)
 
     async def query(
         self,

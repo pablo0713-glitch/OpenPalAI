@@ -220,6 +220,7 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
             async with db.execute(
                 "SELECT COUNT(*) as total, "
                 "COUNT(CASE WHEN importance = -1.0 THEN 1 END) as unscored, "
+                "COUNT(CASE WHEN importance >= 0.6 AND consolidated_at = '' THEN 1 END) as unconsolidated_high, "
                 "AVG(CASE WHEN importance != -1.0 THEN importance END) as avg_score "
                 f"FROM sessions WHERE user_id IN ({placeholders}) AND agent_id = ?",
                 params,
@@ -227,6 +228,7 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
                 row = await cur.fetchone()
                 total = row["total"] if row else 0
                 unscored = row["unscored"] if row else 0
+                unconsolidated_high = row["unconsolidated_high"] if row else 0
                 avg_score = row["avg_score"] if row else None
 
             async with db.execute(
@@ -287,6 +289,7 @@ def create_debug_router(sensor_store: "SensorStore", agent_core: "AgentCore", se
             "total_turns": total,
             "unscored": unscored,
             "scored": total - unscored,
+            "unconsolidated_high": unconsolidated_high,
             "avg_score": round(avg_score, 3) if avg_score is not None else None,
             "distribution": distribution,
             "last_consolidation": last_consolidation,
@@ -1087,6 +1090,7 @@ async function loadSessions() {
   const scored = data.scored || 0;
   const total = data.total_turns || 0;
   const unscored = data.unscored || 0;
+  const pendingNotes = data.unconsolidated_high || 0;
   const avgScore = data.avg_score != null ? data.avg_score.toFixed(3) : '—';
   const consolidation = data.last_consolidation_fmt || 'Never';
   const linkedIds = (data.raw_user_ids || []).join(', ');
@@ -1124,6 +1128,8 @@ async function loadSessions() {
     '<div class="sess-stat"><div class="s-label">Total turns</div><div class="s-value">' + total + '</div></div>' +
     '<div class="sess-stat"><div class="s-label">Unscored</div><div class="s-value" style="color:var(--warning)">' + unscored + '</div>' +
       '<div class="s-sub">' + scored + ' scored</div></div>' +
+    '<div class="sess-stat"><div class="s-label">Pending notes</div><div class="s-value">' + pendingNotes + '</div>' +
+      '<div class="s-sub">high-importance rows</div></div>' +
     '<div class="sess-stat"><div class="s-label">Avg importance</div><div class="s-value">' + avgScore + '</div>' +
       '<div class="s-sub">of scored turns</div></div>' +
     '<div class="sess-stat"><div class="s-label">Last consolidation</div><div class="s-value" style="font-size:12px;margin-top:6px">' + esc(consolidation) + '</div></div>' +

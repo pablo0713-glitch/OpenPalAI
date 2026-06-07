@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from memory.file_store import FileMemoryStore
 from memory.person_map import PersonMap
 from memory.schemas import ConversationFile
 from memory.session_index import SessionIndex
+from memory.vector_store import VectorMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,8 @@ FIRST_CONSOLIDATION_THRESHOLD = 15 # lower threshold when MEMORY.md doesn't exis
 GATE_BYPASS_HOURS = 72             # bypass curator gate if last consolidation was this long ago
 KEEP_TURNS_AFTER = 10
 MEMORY_CAP = 2000   # chars cap for MEMORY.md
+MAX_SCORE_PER_UID_PER_CYCLE = 1000
+MAX_CONSOLIDATION_ROWS = 300
 
 
 class MemoryConsolidator:
@@ -45,6 +49,7 @@ class MemoryConsolidator:
         keep_turns: int = KEEP_TURNS_AFTER,
         curator: MemoryCuratorAgent | None = None,
         session_index: SessionIndex | None = None,
+        vector_store: VectorMemoryStore | None = None,
         importance_threshold: float = 0.6,
         memory_dir: str | None = None,
     ) -> None:
@@ -56,6 +61,7 @@ class MemoryConsolidator:
         self._keep_turns = keep_turns
         self._curator = curator
         self._session_index = session_index
+        self._vector_store = vector_store
         self._importance_threshold = importance_threshold
         # memory_dir is stored explicitly so paths don't depend on notes_dir's location.
         # Falls back to notes_dir/../memory for backward compatibility.
@@ -69,7 +75,11 @@ class MemoryConsolidator:
                 targets.setdefault((agent["id"], person_id), set())
 
         if self._session_index is not None:
-            for row in await self._session_index.get_users_with_unscored_turns():
+            backlog_rows = [
+                *await self._session_index.get_users_with_unscored_turns(),
+                *await self._session_index.get_users_with_pending_consolidation(self._importance_threshold),
+            ]
+            for row in backlog_rows:
                 user_id = row.get("user_id", "")
                 agent_id = row.get("agent_id", "")
                 if not user_id or not agent_id:
@@ -90,19 +100,30 @@ class MemoryConsolidator:
         merged = list(dict.fromkeys([*user_ids, *(extra_user_ids or set())]))
         return merged or [person_id]
 
-    async def _score_unscored_turns(self, agent_id: str, user_ids: list[str]) -> None:
+    async def _score_unscored_turns(self, agent_id: str, person_id: str, user_ids: list[str]) -> None:
         if not self._curator or not self._session_index:
             return
 
         for uid in user_ids:
-            unscored = await self._session_index.get_unscored_turns(uid, limit=200, agent_id=agent_id)
-            if unscored:
+            scored_for_uid = 0
+            while scored_for_uid < MAX_SCORE_PER_UID_PER_CYCLE:
+                unscored = await self._session_index.get_unscored_turns(uid, limit=200, agent_id=agent_id)
+                if not unscored:
+                    break
                 scores = await self._curator.score_turns(unscored)
                 await self._session_index.set_importance_batch(scores)
+                if self._vector_store:
+                    await self._vector_store.set_importance_batch(
+                        _memory_namespace(agent_id, person_id),
+                        scores,
+                    )
                 logger.info(
                     "Curator scored %d/%d turns for '%s'",
                     len(scores), len(unscored), uid,
                 )
+                scored_for_uid += len(unscored)
+                if len(unscored) < 200:
+                    break
 
     async def _check_and_consolidate(
         self,
@@ -115,16 +136,7 @@ class MemoryConsolidator:
 
         # Importance scoring is useful even when there is not enough retained
         # JSON history to write MEMORY.md yet.
-        await self._score_unscored_turns(agent_id, user_ids)
-
-        all_convs: list[ConversationFile] = []
-        for uid in user_ids:
-            all_convs.extend(await self._store.get_all_conversations(uid, agent_id=agent_id))
-
-        if not all_convs:
-            return
-
-        total = sum(len(c.turns) for c in all_convs)
+        await self._score_unscored_turns(agent_id, person_id, user_ids)
 
         # Use a lower threshold for first consolidation (MEMORY.md doesn't exist yet).
         # Check both the agent-scoped path and the legacy flat path so local installs
@@ -137,14 +149,23 @@ class MemoryConsolidator:
                 mem_file = legacy_mem
         effective_threshold = FIRST_CONSOLIDATION_THRESHOLD if not mem_file.exists() else self._threshold
 
-        if total < effective_threshold:
+        candidates = []
+        if self._session_index:
+            candidates = await self._session_index.get_unconsolidated_high_importance_turns(
+                user_ids,
+                threshold=self._importance_threshold,
+                agent_id=agent_id,
+                limit=MAX_CONSOLIDATION_ROWS,
+            )
+
+        if len(candidates) < effective_threshold:
             return
         logger.info(
-            "Consolidating memory for '%s': %d files, %d total turns (threshold %d)",
-            f"{agent_id}:{person_id}", len(all_convs), total, self._threshold,
+            "Consolidating memory for '%s': %d pending high-importance rows (threshold %d)",
+            f"{agent_id}:{person_id}", len(candidates), effective_threshold,
         )
 
-        await self._consolidate(agent_id, person_id, all_convs, extra_user_ids=extra_user_ids)
+        await self._consolidate(agent_id, person_id, candidates)
 
         for uid in user_ids:
             convs = await self._store.get_all_conversations(uid, agent_id=agent_id)
@@ -160,26 +181,16 @@ class MemoryConsolidator:
         self,
         agent_id: str,
         person_id: str,
-        convs: list[ConversationFile],
-        *,
-        extra_user_ids: set[str] | None = None,
+        rows: list[dict],
     ) -> None:
-        # Build transcript filtered to high-importance turns when curator is available
-        if self._curator and self._session_index:
-            user_ids = self._user_ids_for_person(person_id, extra_user_ids)
-            high_importance: set[str] = set()
-            for uid in user_ids:
-                rows = await self._session_index.get_high_importance_turns(
-                    uid, threshold=self._importance_threshold, agent_id=agent_id
-                )
-                for row in rows:
-                    high_importance.add(row["content"][:200])
-            transcript = _build_transcript(agent_id, convs, high_importance_content=high_importance or None)
-        else:
-            transcript = _build_transcript(agent_id, convs)
+        transcript = _build_transcript_from_rows(agent_id, rows)
 
         if not transcript.strip():
             return
+
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_ts = datetime.now(timezone.utc).isoformat()
+        source_ids = [int(row["id"]) for row in rows]
 
         # Curator gate: skip if nothing new worth adding (bypassed after GATE_BYPASS_HOURS)
         safe = person_id.replace("/", "_").replace(":", "_")
@@ -198,6 +209,21 @@ class MemoryConsolidator:
                 secs_since = (time.time() - last_ts) if last_ts is not None else float("inf")
                 if secs_since < GATE_BYPASS_HOURS * 3600:
                     logger.info("Curator gate: skipping consolidation for '%s' (no new value)", person_id)
+                    if self._session_index:
+                        await self._session_index.mark_consolidated(source_ids, run_id, run_ts)
+                    await _append_run_manifest(
+                        self._notes_dir,
+                        agent_id,
+                        person_id,
+                        {
+                            "run_id": run_id,
+                            "timestamp": run_ts,
+                            "status": "skipped_by_curator_gate",
+                            "source_session_ids": source_ids,
+                            "importance_threshold": self._importance_threshold,
+                        },
+                    )
+                    _write_last_consolidation_time(agent_mem_dir)
                     return
                 logger.info(
                     "Curator gate bypassed for '%s' — %.1fh since last consolidation (limit %dh)",
@@ -238,11 +264,28 @@ class MemoryConsolidator:
         # Keep markdown audit trail
         person_notes_dir = os.path.join(self._notes_dir, agent_id, person_id)
         os.makedirs(person_notes_dir, exist_ok=True)
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        audit_path = os.path.join(person_notes_dir, f"memories_{date_str}.md")
+        audit_path = os.path.join(person_notes_dir, f"memories_{run_id}.md")
         async with aiofiles.open(audit_path, "w", encoding="utf-8") as f:
+            await f.write(f"<!-- source_session_ids: {','.join(str(sid) for sid in source_ids)} -->\n\n")
             await f.write(notes_text)
+        await _append_run_manifest(
+            self._notes_dir,
+            agent_id,
+            person_id,
+            {
+                "run_id": run_id,
+                "timestamp": run_ts,
+                "status": "consolidated",
+                "source_session_ids": source_ids,
+                "importance_threshold": self._importance_threshold,
+                "audit_path": audit_path,
+                "notes_chars": len(notes_text),
+                "bullet_count": len(bullets),
+            },
+        )
 
+        if self._session_index:
+            await self._session_index.mark_consolidated(source_ids, run_id, run_ts)
         _write_last_consolidation_time(agent_mem_dir)
         logger.info("Memory consolidated for '%s' → %s (%d chars)", person_id, memory_file, len(existing))
 
@@ -324,6 +367,34 @@ def _build_transcript(
     return "\n\n---\n\n".join(parts)
 
 
+def _build_transcript_from_rows(agent_id: str, rows: list[dict]) -> str:
+    """Build a consolidation transcript from durable sessions.db rows."""
+    cfg = get_companion_agent(agent_id)
+    agent_name = cfg.get("agent_name", "Agent")
+    parts: list[str] = []
+
+    for row in rows:
+        role_label = agent_name if row.get("role") == "assistant" else (row.get("display_name") or "User")
+        content = str(row.get("content", "")).strip()
+        if not content:
+            continue
+        if len(content) > 700:
+            content = content[:700] + "..."
+        platform = str(row.get("platform", "?")).upper()
+        ts = str(row.get("timestamp", ""))[:19]
+        score = row.get("importance", "?")
+        parts.append(
+            f"[session:{row.get('id')} | {platform} | {ts} | importance:{score}]\n"
+            f"{role_label}: {content}"
+        )
+
+    return "\n\n---\n\n".join(parts)
+
+
+def _memory_namespace(agent_id: str, person_id: str) -> str:
+    return f"{agent_id.replace('/', '_').replace(':', '_')}::{person_id}" if agent_id else person_id
+
+
 def _read_last_consolidation_time(person_dir: Path) -> float | None:
     stamp = person_dir / ".last_consolidation"
     try:
@@ -338,3 +409,11 @@ def _write_last_consolidation_time(person_dir: Path) -> None:
         (person_dir / ".last_consolidation").write_text(str(time.time()), encoding="utf-8")
     except OSError as exc:
         logger.warning("Could not write last-consolidation timestamp: %s", exc)
+
+
+async def _append_run_manifest(notes_dir: str, agent_id: str, person_id: str, record: dict) -> None:
+    person_notes_dir = Path(notes_dir) / agent_id / person_id
+    person_notes_dir.mkdir(parents=True, exist_ok=True)
+    manifest = person_notes_dir / "consolidation_runs.jsonl"
+    async with aiofiles.open(manifest, "a", encoding="utf-8") as f:
+        await f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")

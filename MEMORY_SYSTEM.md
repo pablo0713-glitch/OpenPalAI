@@ -17,6 +17,9 @@ The memory system is multi-layered. Each layer serves a different time horizon a
 │ INJECTED WHEN always_on (Block 2 — uncached)                       │
 │  Library modules  ≤library_always_on_cap chars  situational lore   │
 ├────────────────────────────────────────────────────────────────────┤
+│ IDENTITY GRAPH                                                     │
+│  PersonMap  Command Center root → command/Discord/SL platform IDs  │
+├────────────────────────────────────────────────────────────────────┤
 │ INJECTED FOR CROSS-PLATFORM CONTEXT (Block 3 — dynamic)            │
 │  STM bridge  rolling 10 exchange summaries from linked platform UIDs│
 ├────────────────────────────────────────────────────────────────────┤
@@ -87,8 +90,8 @@ for f in glob.glob('data/memory/**/*.json', recursive=True):
 Two bounded markdown files per canonical `person_id`:
 
 ```
-data/memory/{safe_person_id}/MEMORY.md   ≤2,000 chars
-data/memory/{safe_person_id}/USER.md     ≤1,200 chars
+data/memory/agents/{agent_id}/{safe_person_id}/MEMORY.md   ≤2,000 chars
+data/memory/agents/{agent_id}/{safe_person_id}/USER.md     ≤1,200 chars
 ```
 
 - **MEMORY.md** — agent's notes about context, facts, and the world. Updated in real time via the `memory` tool.
@@ -125,12 +128,12 @@ No env vars control these files directly. The caps (2,000 / 1,200 chars) are har
 
 ```bash
 # View current curated memory for the owner
-cat data/memory/SL_Notes/MEMORY.md
-cat data/memory/SL_Notes/USER.md
+cat data/memory/agents/{agent_id}/{CommandCenterName}/MEMORY.md
+cat data/memory/agents/{agent_id}/{CommandCenterName}/USER.md
 
 # Check entry count
 python3 -c "
-text = open('data/memory/SL_Notes/MEMORY.md').read()
+text = open('data/memory/agents/{agent_id}/{CommandCenterName}/MEMORY.md').read()
 print(f'Entries: {text.count(chr(0xa7))}')
 print(f'Chars: {len(text)} / 2000')
 "
@@ -153,6 +156,7 @@ Schema:
 ```sql
 CREATE TABLE sessions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id     TEXT NOT NULL DEFAULT '',
     user_id      TEXT NOT NULL,
     channel_id   TEXT NOT NULL,
     platform     TEXT NOT NULL,
@@ -160,7 +164,9 @@ CREATE TABLE sessions (
     content      TEXT NOT NULL,
     timestamp    TEXT NOT NULL,
     display_name TEXT NOT NULL DEFAULT '',
-    importance   REAL NOT NULL DEFAULT -1.0   -- -1.0 = unscored
+    importance   REAL NOT NULL DEFAULT -1.0,  -- -1.0 = unscored
+    consolidated_at TEXT NOT NULL DEFAULT '',
+    consolidation_run_id TEXT NOT NULL DEFAULT ''
 );
 ```
 
@@ -186,13 +192,13 @@ Added by migration `_MIGRATE_IMPORTANCE_STMTS`. Sentinel value `-1.0` means "not
 | `0.6` | Notable |
 | `1.0` | Pivotal |
 
-The `importance` column drives what gets included in consolidation transcripts (above threshold) and what the vector index can filter on (`importance_threshold` in `semantic_search`).
+The `importance` column drives what gets included in consolidation transcripts (above threshold) and what the vector index can filter on (`importance_threshold` in `semantic_search`). `consolidated_at` and `consolidation_run_id` make consolidation idempotent: a high-importance turn is only considered for `MEMORY.md` once unless explicitly reset.
 
 ### Configuration
 
 | Env var | Default | Description |
 |---|---|---|
-| `IMPORTANCE_THRESHOLD` | `0.6` | Min score for a turn to appear in consolidation transcript |
+| `IMPORTANCE_THRESHOLD` | `0.4` | Min score for a turn to appear in consolidation transcript |
 | `IMPORTANCE_SCORE_BATCH_SIZE` | `20` | Turns per curator API call |
 
 ### Testing
@@ -290,7 +296,7 @@ Embedding model: ONNXMiniLM-L6-v2 (bundled with ChromaDB — no PyTorch or sente
 | Env var | Default | Description |
 |---|---|---|
 | `MEMORY_DIR` | `./data/memory` | Base dir for both `sessions.db` and `chroma/` |
-| `IMPORTANCE_THRESHOLD` | `0.6` | Default threshold for `semantic_search` when called via tool |
+| `IMPORTANCE_THRESHOLD` | `0.4` | Default threshold for `semantic_search` when called via tool |
 
 Supporting agent model for semantic recall (in `data/agent_config.json`):
 ```json
@@ -329,7 +335,7 @@ from memory.vector_store import VectorMemoryStore
 async def main():
     settings = load_settings()
     vs = VectorMemoryStore(settings.memory_dir)
-    results = await vs.semantic_search('SL_Notes', 'mesh body options', n_results=3)
+    results = await vs.semantic_search('trixxie-carissa::Pablo', 'mesh body options', n_results=3)
     for r in results:
         print(f'sim={r[\"distance\"]:.3f}  {r[\"metadata\"][\"display_name\"]}')
         print(f'  {r[\"content\"][:100]}')
@@ -479,7 +485,29 @@ for r in results:
 
 ---
 
-## Layer 6 — Short-Term Memory Bridge (STM)
+## Layer 6 — Identity Map (PersonMap)
+
+### What it stores
+
+`data/person_map.json` links platform-specific storage IDs to one canonical person. The canonical owner identity is the setup wizard's **Command Center Name**.
+
+```json
+{
+  "Pablo": [
+    "command_user_<browser-id>",
+    "discord_<snowflake>",
+    "sl_<uuid>"
+  ]
+}
+```
+
+Command Center browser IDs (`command_user_*`) resolve to the canonical owner automatically. SL and Discord IDs are auto-linked when the incoming platform display name matches `OWNER_SL_NAME` or `OWNER_DISCORD_NAME`. Manual repair is still possible by editing `person_map.json`.
+
+This identity map is used for curated memory paths, STM cross-platform bridging, vector namespaces, and consolidation targets.
+
+---
+
+## Layer 7 — Short-Term Memory Bridge (STM)
 
 ### What it stores
 
@@ -522,9 +550,11 @@ cat data/memory/discord_<your_id>/stm.json | python3 -m json.tool
 
 ### Overview
 
-`MemoryConsolidator` runs every 6 hours as a background loop. The timer is restart-resilient — `.last_consolidation` is read from disk to compute the remaining wait.
+`MemoryConsolidator` runs every 6 hours as a background loop. The timer is restart-resilient — `.last_consolidation` is read from disk to compute the remaining wait. Startup bypasses the wait when `sessions.db` contains unscored turns or high-importance rows pending consolidation.
 
-Consolidation triggers when total turns for a person exceeds **30**. The full pipeline with `MemoryCuratorAgent`:
+Consolidation is driven by durable `sessions.db` rows, not by trimmed JSON conversation files. The JSON files are short working history; `sessions.db` is the source of truth for long-term memory graduation.
+
+Consolidation triggers when pending high-importance rows for a canonical person exceed **30** (or **15** for the first `MEMORY.md`). The full pipeline with `MemoryCuratorAgent`:
 
 ```
 1. get_unscored_turns(uid) for each linked user_id
@@ -535,26 +565,29 @@ Consolidation triggers when total turns for a person exceeds **30**. The full pi
         ↓
 3. session_index.set_importance_batch(scores)
    → single WAL transaction
+   vector_store.set_importance_batch(scores)
+   → keeps Chroma metadata aligned with SQLite scores
         ↓
-4. get_high_importance_turns(uid, threshold=0.6)
-   → builds filtered transcript
+4. get_unconsolidated_high_importance_turns(user_ids, threshold)
+   → durable transcript from sessions.db rows where consolidated_at = ''
         ↓
 5. curator.should_consolidate(transcript, existing_memory)
    → lightweight gate: {"consolidate": true|false}
-   → skips if nothing new
+   → if skipped, marks source rows consolidated so they do not loop forever
         ↓
 6. main model: write first-person bullet-point notes
         ↓
 7. append to MEMORY.md (oldest trimmed to maintain ≤2,000 char cap)
-8. save audit trail to data/notes/SL_Notes/memories_YYYY-MM-DD.md
-9. trim conversation files to 10 turns each
+8. save timestamped audit trail and consolidation_runs.jsonl with source session IDs
+9. mark source rows with consolidated_at + consolidation_run_id
+10. trim conversation files to 10 turns each
 ```
 
 ### Configuration
 
 | Env var | Default | Description |
 |---|---|---|
-| `IMPORTANCE_THRESHOLD` | `0.6` | Min score for transcript inclusion |
+| `IMPORTANCE_THRESHOLD` | `0.4` | Min score for transcript inclusion |
 | `IMPORTANCE_SCORE_BATCH_SIZE` | `20` | Turns per curator batch call |
 
 Consolidation interval (6 hours) is hardcoded in `main.py` as `CONSOLIDATION_INTERVAL_SECS = 6 * 3600`. The threshold (30 turns) is hardcoded in `memory/consolidator.py` as `CONSOLIDATION_THRESHOLD = 30`.
@@ -592,8 +625,8 @@ rm data/memory/.last_consolidation
 ./run.sh 2>&1 | grep -E "(consolidat|scored|curator|importance)"
 
 # Verify results
-cat data/memory/SL_Notes/MEMORY.md
-ls data/notes/SL_Notes/
+cat data/memory/agents/{agent_id}/{CommandCenterName}/MEMORY.md
+ls data/notes/{agent_id}/{CommandCenterName}/
 
 # Test the curator gate: force all scores to 0.1 and re-run
 # (consolidation should be skipped as nothing meets threshold)
@@ -645,7 +678,7 @@ Leave `model_name` empty to inherit the main agent's model. Set `model_provider`
 | `NOTES_DIR` | `./data/notes` | Root dir for consolidation audit trail |
 | `LIBRARY_DIR` | `./data/library` | Library module directory |
 | `LIBRARY_ALWAYS_ON_CAP` | `4000` | Max chars of always-on library content per message |
-| `IMPORTANCE_THRESHOLD` | `0.6` | Min score for consolidation transcript inclusion |
+| `IMPORTANCE_THRESHOLD` | `0.4` | Min score for consolidation transcript inclusion |
 | `IMPORTANCE_SCORE_BATCH_SIZE` | `20` | Turns per curator scoring batch |
 
 ---
@@ -719,8 +752,8 @@ Edit the file to set `always_on: true`, then check the debug panel (Prompts tab)
 2. Ensure >30 turns exist (`sqlite3 data/memory/sessions.db "SELECT COUNT(*) FROM sessions;"`)
 3. Restart the server
 4. Watch logs: scoring → gate check → note writing → trim
-5. Verify `data/memory/SL_Notes/MEMORY.md` was updated
-6. Verify `data/notes/SL_Notes/memories_*.md` audit file exists
+5. Verify `data/memory/agents/{agent_id}/{CommandCenterName}/MEMORY.md` was updated
+6. Verify `data/notes/{agent_id}/{CommandCenterName}/memories_*.md` and `consolidation_runs.jsonl` exist
 7. Verify conversation files were trimmed to 10 turns
 
 ### Curated memory write (memory tool)
@@ -729,7 +762,7 @@ Send from Discord: "Please remember that I prefer verbose technical explanations
 
 Expected: agent calls `memory` tool with `action: add, store: user, text: Prefers verbose technical explanations`.
 
-Verify: `cat data/memory/SL_Notes/USER.md`
+Verify: `cat data/memory/agents/{agent_id}/{CommandCenterName}/USER.md`
 
 ### Debug panel verification
 
@@ -809,7 +842,8 @@ Navigate to `http://localhost:8080/debug` → Prompts tab:
               │  curator.should_consolidate() gate    │
               │  → main model: write notes            │
               │  → MEMORY.md (trimmed to cap)         │
-              │  → memories_YYYY-MM-DD.md (audit)     │
+              │  → memories_YYYYMMDDTHHMMSSZ.md       │
+              │  → consolidation_runs.jsonl           │
               │  → trim conversation files to 10      │
               └──────────────────────────────────────┘
 ```
@@ -911,7 +945,7 @@ MemoryConsolidator._check_and_consolidate(person_id)
   4. MemoryCuratorAgent.should_consolidate(transcript, existing_MEMORY.md)
        → "is there new value here?" reasoning gate → bool
   5. _build_transcript(convs, high_importance_content=...)
-       → filters to turns where importance >= 0.6 (from sessions.db)
+       → filters to rows where importance >= threshold and consolidated_at = ''
   6. ModelAdapter.create_simple() → journal-style notes text
   7. Parse bullet points → _add_entry() → cap at 2000 chars (trim oldest)
   8. Write MEMORY.md + audit trail markdown
@@ -951,10 +985,10 @@ Doc ID = SQLite rowid — stable, autoincrement, never reused; keeps FTS5 and Ch
 The library system is fully implemented but has no wizard UI. Modules are currently managed via the `POST /setup/library` API only. A dedicated tab in the wizard (after Step 7) would allow creating, editing, toggling `always_on`, and setting platform filters without curl commands.
 
 ### Importance Threshold in Wizard
-`IMPORTANCE_THRESHOLD` (default `0.6`) is env-var-only. It should be exposed in wizard Step 7 alongside the supporting agent model config, so users can tune what makes it into consolidation transcripts without editing `.env`.
+`IMPORTANCE_THRESHOLD` (default `0.4`) is env-var-only. It should be exposed in wizard Step 7 alongside the supporting agent model config, so users can tune what makes it into consolidation transcripts without editing `.env`.
 
 ### Lua-Side Persistence for Echo Table
 The `sent_replies` echo-suppression table in `lua/agent_companion.lua` is reset every viewer restart, which allows reflected IMs to slip through on reconnect. `SetPerAccountData()` / `GetPerAccountData()` (Cool VL Viewer Lua API) should be used to persist this table across sessions. Same applies to the streaming toggle state.
 
-### Fix Example Paths in This Document
-All testing examples use the hardcoded path `SL_Notes` (e.g., `cat data/memory/SL_Notes/MEMORY.md`). The actual path structure is `data/memory/agents/{agent_id}/{safe_person_id}/MEMORY.md` for non-default agents. The code is correct; the docs lag. Examples should use `{agent_id}::{person_id}` notation to match the actual namespace.
+### Manual Identity-Link Editor
+Runtime auto-linking handles Command Center browser IDs and configured owner SL/Discord names, but a small setup/debug editor for `person_map.json` would make identity repair explicit when platform display names change.

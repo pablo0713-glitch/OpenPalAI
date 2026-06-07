@@ -22,6 +22,7 @@ REQUIRED_MODULES = [
     "chromadb",
     # project — config
     ("config.settings", "load_settings"),
+    ("config.paths",    "data_dir"),
     # project — core
     ("core.model_adapter", "ModelAdapter"),
     ("core.persona",       "build_system_prompt_blocks"),
@@ -74,7 +75,13 @@ REQUIRED_FILES = [
     "setup/wizard.js",
     "Containerfile",
     "compose.yml",
+    "compose.sandbox.yml",
     "scripts/check_updates.sh",
+    "scripts/sandbox-linux.sh",
+    "scripts/sandbox-windows.ps1",
+    "scripts/pull-live-data.sh",
+    "scripts/pull-live-data-windows.ps1",
+    "SANDBOXES.md",
 ]
 
 

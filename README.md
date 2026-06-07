@@ -103,6 +103,16 @@ python check_install.py
 
 > For Second Life, continue to the **Second Life Setup** section after completing setup.
 
+## Persistent Sandboxes
+
+For stable testing without touching your live memory or `.env`, use the sandbox runners:
+
+- Fedora/Linux container sandbox: `./scripts/sandbox-linux.sh up`
+- Windows local sandbox: `.\scripts\sandbox-windows.ps1 up`
+
+Both keep state under `.sandbox/` and are documented in [SANDBOXES.md](SANDBOXES.md).
+When you want realistic local tests, pull VPS state into a sandbox with `scripts/pull-live-data.sh` or `scripts/pull-live-data-windows.ps1`; local `data/` can stay empty.
+
 ## Command Center
 
 The main browser entry point is **[http://localhost:8080/command](http://localhost:8080/command)**.

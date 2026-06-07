@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
+from config.paths import data_dir, env_path
 from memory.person_map import canonical_owner_id, migrate_owner_identity
 
 logger = logging.getLogger(__name__)
@@ -19,16 +20,17 @@ logger = logging.getLogger(__name__)
 _startup_script_updated: bool = False  # set True when startup finds a newer template
 
 _ROOT = Path(__file__).parent.parent
-_ENV_PATH = _ROOT / ".env"
-_CONFIG_PATH = _ROOT / "data" / "agent_config.json"
-_IDENTITY_DIR = _ROOT / "data" / "identity"
-_AGENTS_DIR = _ROOT / "data" / "agents"
-_MEMORY_AGENTS_DIR = _ROOT / "data" / "memory" / "agents"
+_DATA_DIR = data_dir()
+_ENV_PATH = env_path()
+_CONFIG_PATH = _DATA_DIR / "agent_config.json"
+_IDENTITY_DIR = _DATA_DIR / "identity"
+_AGENTS_DIR = _DATA_DIR / "agents"
+_MEMORY_AGENTS_DIR = _DATA_DIR / "memory" / "agents"
 _SETUP_DIR = _ROOT / "setup"
 
-_PERSON_MAP_PATH = _ROOT / "data" / "person_map.json"
-_NOTES_DIR = _ROOT / "data" / "notes"
-_LIBRARY_DIR = _ROOT / "data" / "library"
+_PERSON_MAP_PATH = _DATA_DIR / "person_map.json"
+_NOTES_DIR = _DATA_DIR / "notes"
+_LIBRARY_DIR = _DATA_DIR / "library"
 _IDENTITY_FILES = ("agent.md", "soul.md", "user.md")
 
 _SENSITIVE_KEYS = {
@@ -542,7 +544,7 @@ def _migrate_owner_key(command_center_name: str) -> None:
     migrate_owner_identity(
         _PERSON_MAP_PATH,
         canonical_id,
-        memory_dir=_ROOT / "data" / "memory",
+        memory_dir=_DATA_DIR / "memory",
         notes_dir=_NOTES_DIR,
     )
     logger.info("Owner identity root is '%s'", canonical_id)

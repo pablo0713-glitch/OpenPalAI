@@ -4,7 +4,9 @@ import os
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
-load_dotenv()
+from config.paths import data_dir, env_path
+
+load_dotenv(env_path())
 
 
 @dataclass
@@ -123,8 +125,8 @@ def load_settings() -> Settings:
         search_api_key=os.getenv("SEARCH_API_KEY", ""),
         rate_limit_capacity=int(os.getenv("RATE_LIMIT_CAPACITY", "5")),
         rate_limit_refill_rate=float(os.getenv("RATE_LIMIT_REFILL_RATE", "0.5")),
-        memory_dir=os.getenv("MEMORY_DIR", "./data/memory"),
-        notes_dir=os.getenv("NOTES_DIR", "./data/notes"),
+        memory_dir=os.getenv("MEMORY_DIR", str(data_dir() / "memory")),
+        notes_dir=os.getenv("NOTES_DIR", str(data_dir() / "notes")),
         memory_max_history=int(os.getenv("MEMORY_MAX_HISTORY", "20")),
         owner_sl_name=os.getenv("OWNER_SL_NAME", ""),
         owner_discord_name=os.getenv("OWNER_DISCORD_NAME", ""),
@@ -132,7 +134,7 @@ def load_settings() -> Settings:
         sl_trigger_names=[
             t.strip() for t in os.getenv("SL_TRIGGER_NAMES", "").split(",") if t.strip()
         ],
-        library_dir=os.getenv("LIBRARY_DIR", "./data/library"),
+        library_dir=os.getenv("LIBRARY_DIR", str(data_dir() / "library")),
         library_always_on_cap=int(os.getenv("LIBRARY_ALWAYS_ON_CAP", "4000")),
         importance_threshold=float(os.getenv("IMPORTANCE_THRESHOLD", "0.4")),
         importance_score_batch_size=int(os.getenv("IMPORTANCE_SCORE_BATCH_SIZE", "20")),

@@ -7,11 +7,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+from config.paths import data_dir
+
 logger = logging.getLogger(__name__)
 
-_AGENT_CONFIG_PATH = Path(__file__).parent.parent / "data" / "agent_config.json"
-_IDENTITY_DIR = Path(__file__).parent.parent / "data" / "identity"
-_AGENTS_DIR = Path(__file__).parent.parent / "data" / "agents"
+_DATA_DIR = data_dir()
+_AGENT_CONFIG_PATH = _DATA_DIR / "agent_config.json"
+_IDENTITY_DIR = _DATA_DIR / "identity"
+_AGENTS_DIR = _DATA_DIR / "agents"
 
 # ------------------------------------------------------------------ defaults
 

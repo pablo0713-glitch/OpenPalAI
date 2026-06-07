@@ -1,4 +1,4 @@
-# Claude Agent Guide
+# Gemini Agent Guide
 
 The canonical coding-agent guide for this project is [AGENTS.md](AGENTS.md).
 

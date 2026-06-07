@@ -2,6 +2,7 @@
 # Sensitive and runtime-generated files — these are volume-mounted at runtime.
 .env
 data/
+.sandbox/
 .venv/
 
 # Python cache

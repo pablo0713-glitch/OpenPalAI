@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from config.settings import load_settings
+from config.paths import data_dir
 from core.agent import AgentCore
 from core.librarian_agent import LibrarianAgent
 from core.memory_curator import MemoryCuratorAgent
@@ -33,7 +34,7 @@ from memory.person_map import PersonMap, canonical_owner_id, migrate_owner_ident
 from memory.session_index import SessionIndex
 from memory.vector_store import VectorMemoryStore
 
-PERSON_MAP_PATH = os.path.join(os.path.dirname(__file__), "data", "person_map.json")
+PERSON_MAP_PATH = str(data_dir() / "person_map.json")
 CONSOLIDATION_INTERVAL_SECS = 6 * 3600  # every 6 hours
 
 logging.basicConfig(

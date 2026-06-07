@@ -146,7 +146,7 @@ async function loadStatus() {
       params.set('agent_id', selectedAgentId);
     }
     const response = await fetch(`/command/status?${params.toString()}`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     availableAgents = Array.isArray(data.agents) ? data.agents : [];
     selectedAgentId = data.agent_id || data.default_agent_id || selectedAgentId || '';
     if (selectedAgentId) {
@@ -183,7 +183,7 @@ async function loadConversationHistory() {
       agent_id: selectedAgentId,
     });
     const response = await fetch(`/command/history?${params.toString()}`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Failed to load conversation history');
     }
@@ -264,7 +264,7 @@ async function sendMessage() {
       method: 'POST',
       body: formData,
     });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Request failed');
     }
@@ -319,7 +319,7 @@ async function sendGroupMessage() {
 
   try {
     const response = await fetch('/command/group-chat', { method: 'POST', body: formData });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Request failed');
     }
@@ -351,7 +351,7 @@ async function loadGroupHistory() {
       command_user_id: commandUserId,
     });
     const response = await fetch(`/command/group-history?${params.toString()}`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Failed to load group history');
     }
@@ -464,7 +464,7 @@ async function uploadLibraryFiles() {
       method: 'POST',
       body: formData,
     });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Library upload failed');
     }
@@ -492,7 +492,7 @@ async function loadLibraryModules(selectedId = selectedLibraryId) {
   libraryBrowserStatus.textContent = 'Loading library…';
   try {
     const response = await fetch('/command/library');
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Failed to load library');
     }
@@ -546,7 +546,7 @@ async function selectLibraryModule(moduleId) {
 
   try {
     const response = await fetch(`/command/library/${encodeURIComponent(moduleId)}`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Failed to load module');
     }
@@ -588,7 +588,7 @@ async function saveSelectedLibraryModule() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ always_on: libraryDetailAlwaysOn.checked }),
     });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Save failed');
     }
@@ -609,7 +609,7 @@ async function deleteSelectedLibraryModule() {
     const response = await fetch(`/command/library/${encodeURIComponent(selectedLibraryId)}`, {
       method: 'DELETE',
     });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!response.ok || !data.ok) {
       throw new Error(data.error || 'Delete failed');
     }
@@ -691,6 +691,19 @@ function buildAttachmentPrompt(files) {
     return '';
   }
   return `Uploaded ${files.length} attachment${files.length === 1 ? '' : 's'}.`;
+}
+
+async function readJsonResponse(response) {
+  const text = await response.text();
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    const compact = text.replace(/\s+/g, ' ').trim();
+    throw new Error(compact ? compact.slice(0, 240) : `HTTP ${response.status}`);
+  }
 }
 
 function renderFileList(input, target) {

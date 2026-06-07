@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import mimetypes
 import re
 import time
@@ -27,6 +28,8 @@ from core.persona import (
     resolve_platform_agent_id,
 )
 from memory.library_store import LibraryStore
+
+logger = logging.getLogger(__name__)
 
 _ROOT = Path(__file__).parent.parent
 _COMMAND_DIR = _ROOT / "command"
@@ -156,6 +159,12 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
             content, attachments = await _build_user_content(cleaned_message, uploads)
         except ValueError as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+        except Exception as exc:
+            logger.exception("Command upload processing failed: %s", exc)
+            return JSONResponse(
+                {"ok": False, "error": f"Upload processing failed: {exc}"},
+                status_code=500,
+            )
 
         context = MessageContext(
             platform="command",
@@ -164,7 +173,14 @@ def create_command_center_router(agent: AgentCore, settings: Settings) -> APIRou
             display_name=cleaned_display_name,
             agent_id=selected_agent_id,
         )
-        response = await agent.handle_message(content, context)
+        try:
+            response = await agent.handle_message(content, context)
+        except Exception as exc:
+            logger.exception("Command chat failed: %s", exc)
+            return JSONResponse(
+                {"ok": False, "error": f"Command chat failed: {exc}"},
+                status_code=500,
+            )
 
         return JSONResponse(
             {

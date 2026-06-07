@@ -163,6 +163,9 @@ server {
     listen 80;
     server_name your-domain-or-ip.nip.io;
 
+    # Command Center chat/library uploads support images and documents up to 5 MB.
+    client_max_body_size 6m;
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
@@ -433,6 +436,7 @@ Memory, conversation history, ChromaDB vectors, and all configuration are restor
 | **ONNX model re-downloads every rebuild** | Slow first start after each `compose build` | `data/.cache/` volume mount handles this. Verify `./data/.cache:/root/.cache:Z` is in `compose.yml`. |
 | **SELinux blocking Nginx proxy** | Nginx log: `(13: Permission denied) while connecting to upstream` | `sudo setsebool -P httpd_can_network_connect 1` |
 | **Nginx 60s timeout** | SL replies: `Something went sideways` after exactly 60 seconds | Nginx default read timeout is 60s. Verify `proxy_read_timeout 300s` is in your `trixxie.conf` location block. |
+| **Image upload returns HTML / JSON parse error** | Command Center says `JSON.parse` or browser network tab shows 413 | Nginx default body size is too small for generated images. Add `client_max_body_size 6m;` to the server block and reload Nginx. |
 | **Lua script hitting wrong URL** | SL replies fail instantly; server logs show no incoming request | Your viewer's `automation.lua` has an old `SERVER_URL`. Update it to match the VPS HTTPS address. |
 | **Update check timer never fires** | `journalctl -u trixxie-update-check` is empty | Run `sudo systemctl list-timers trixxie-update-check` — check `NEXT` column. Run the service manually: `sudo systemctl start trixxie-update-check`. |
 | **`compose build` fails on pip install** | Network error during `pip install` | Transient VPS network issue. Re-run `compose build` — packages already downloaded in a partial layer may still be cached. |

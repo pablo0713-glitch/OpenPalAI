@@ -218,8 +218,10 @@ function setPanel(panelId) {
   }
 
   const active = navLinks.find((link) => link.dataset.panel === panelId);
-  const label = active?.textContent?.trim() || 'Command Center';
-  panelTitle.textContent = label;
+  const label = active?.textContent?.trim() || 'Chat';
+  const title = `OpenPalAI - ${label}`;
+  panelTitle.textContent = title;
+  document.title = panelId === 'chat-panel' ? 'OpenPalAI Command Center' : title;
 
   if (panelId === 'setup-panel') {
     openStandalone.href = '/setup';

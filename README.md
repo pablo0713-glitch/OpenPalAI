@@ -15,23 +15,24 @@ For 24/7 hosting, see the Cloud Deployment & Persistence Guide.
 
 | Capability | Detail |
 |---|---|
-| **Natural conversation** | Browser chat first, with optional Discord, Second Life, and OpenSimulator bridges |
-| **Persistent memory** | Remembers facts, preferences, and past conversations across sessions |
-| **Web search** | Current news, prices, music, SL Marketplace listings, anything time-sensitive |
+| **Command Center** | Browser-based home for chat, setup, memory, library management, debugging, and platform configuration |
+| **Natural conversation** | Chat directly in the browser first, then optionally extend the same companion into other platforms |
+| **Document uploads** | Browser chat accepts images, text-like files, PDF, and DOCX; library ingest turns documents into reusable modules |
+| **Library modules** | Drop-in reference documents (lore guides, setting rules, style notes) injected into context on demand or always-on |
+| **Web search** | General-purpose web lookup for current information, research, products, places, media, and other time-sensitive questions |
 | **Notes** | Saves and retrieves items on request — shopping lists, sim recommendations, goals |
-| **SL sensor awareness** | Nearby avatars, sim/parcel info, environment, ambient chat, scripted objects, outfit |
-| **SL actions** | Emotes, IMs to specific avatars, local chat, animations, mute/unmute |
-| **Cross-platform context** | Carries context between Command Center, Discord, and Second Life when the same person is linked |
+| **Multiple companions** | Create several distinct companion personas, each with its own identity, tools, and separate memory — switchable in the Command Center |
+| **Group chat** | Multiple companions converse in one Command Center thread — name a companion or alias to pull it into the conversation |
+| **Persistent memory** | Remembers facts, preferences, and past conversations across sessions |
+| **Importance scoring** | Background agent scores every turn 0–1; only high-value content graduates to long-term memory |
 | **Memory consolidation** | Background job writes concise notes from long conversation history every 6 hours |
 | **Session search** | Full-text search over all past conversations — the agent can recall specific exchanges |
 | **Semantic recall** | Meaning-based memory search via ChromaDB — finds relevant memories even when the exact words differ |
-| **Importance scoring** | Background agent scores every turn 0–1; only high-value content graduates to long-term memory |
-| **Library modules** | Drop-in reference documents (lore guides, setting rules, style notes) injected into context on demand or always-on |
 | **Supporting agents** | Specialist background agents (Memory Curator, Librarian, Semantic Recall) each with configurable provider and model |
-| **Multiple companions** | Create several distinct companion personas, each with its own identity, tools, and separate memory — switchable in the Command Center (Second Life and Discord use the default companion only) |
-| **Group chat** | Multiple companions converse in one Command Center thread — name a companion (or a configured nickname) to pull it into the conversation; they address each other by name to keep it going |
-| **Command Center** | Unified web UI for chat, setup, debug, and library management at `/command` |
-| **Document uploads** | Browser chat accepts images, text-like files, PDF, and DOCX; library ingest turns documents into modules in `data/library` |
+| **Cross-platform context** | Carries context between Command Center, Discord, and Second Life when the same person is linked |
+| **Discord bridge** | Optional Discord bot support for DMs, mentions, and configured active channels |
+| **SL sensor awareness** | Optional Second Life/OpenSimulator awareness: nearby avatars, sim/parcel info, environment, ambient chat, scripted objects, outfit |
+| **SL actions** | Optional in-world actions: emotes, IMs to specific avatars, local chat, animations, mute/unmute |
 
 ---
 

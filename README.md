@@ -49,10 +49,6 @@ For 24/7 hosting, see the Cloud Deployment & Persistence Guide.
 | ✨ **Multiple platforms** | Fast Setup → Wizard → enable the bridges you want |
 | 🔲 **OpenSimulator** | Same as Second Life + one script change — see the OpenSimulator section |
 
-> **Second Life viewers:** Your own viewer can be anything — Firestorm, Alchemy, the official viewer, whatever you prefer. **The agent's avatar must run Cool VL Viewer.** The Lua automation script runs inside Cool VL Viewer's native Lua API and is the primary in-world interface — handling avatars, environment, chat, IMs, and agent state at the viewer level with no LSL memory limits. The LSL HUD remains available as a fallback for the agent's viewer if needed (and is still used for object scanning), but Cool VL Viewer for the agent's avatar will eventually be required.
-
-> **OpenSim note:** The HUD works on OpenSimulator 0.9.3.0+. Set `string GRID = "opensim";` at the top of `lsl/companion_bridge.lsl` before compiling. See the OpenSimulator section for details.
-
 ---
 
 ## ⚡ Fast Setup
@@ -292,6 +288,10 @@ If Second Life is configured, this step also shows **Copy** and **Save** buttons
 <summary><strong>Second Life Setup</strong></summary>
 
 <br>
+
+> **Second Life viewers:** Your own viewer can be anything — Firestorm, Alchemy, the official viewer, whatever you prefer. **The agent's avatar must run Cool VL Viewer.** The Lua automation script runs inside Cool VL Viewer's native Lua API and is the primary in-world interface — handling avatars, environment, chat, IMs, and agent state at the viewer level with no LSL memory limits. The LSL HUD remains available as a fallback for the agent's viewer if needed and is still used for object scanning.
+
+> **OpenSim note:** The HUD works on OpenSimulator 0.9.3.0+. Set `string GRID = "opensim";` at the top of `lsl/companion_bridge.lsl` before compiling. See the OpenSimulator section for details.
 
 ### 1. Expose the bridge
 

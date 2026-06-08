@@ -57,6 +57,8 @@ For 24/7 hosting, see the Cloud Deployment & Persistence Guide.
 
 **Have your API key and (if using Discord) your bot token ready. The whole thing takes about 5 minutes.**
 
+> **Tested environments:** Installation and operation have been thoroughly tested on Fedora Linux in both local and remote/VPS deployments. Windows instructions are provided, but Windows installation and operation have not yet been fully tested. If you run into Windows problems, please open a GitHub issue with the error output and your setup details.
+
 **Linux**
 
 1. **Clone and install**
@@ -625,6 +627,11 @@ companion-agent/
 - Sandbox state lives under `.sandbox/`, so local `data/` can stay empty
 - For realistic local testing, pull VPS state into a sandbox with `scripts/pull-live-data.sh` or `scripts/pull-live-data-windows.ps1`
 - See [SANDBOXES.md](SANDBOXES.md) for the full workflow
+
+**Windows install or runtime problems:**
+- Linux installation and operation have been thoroughly tested on Fedora, both locally and on remote/VPS deployments
+- Windows installation and operation have not yet been fully tested
+- If you try Windows and run into problems, please open a GitHub issue with your Windows version, Python version, command output, and any relevant logs
 
 **Agent isn't responding on Discord:**
 - Check that `DISCORD_TOKEN` is set in `.env`

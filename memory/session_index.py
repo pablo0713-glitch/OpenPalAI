@@ -33,6 +33,8 @@ _SCHEMA_STMTS = [
             VALUES (new.id, new.content, new.display_name);
         END
     """,
+    "CREATE INDEX IF NOT EXISTS idx_sessions_agent_user ON sessions(agent_id, user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sessions_agent_display_name ON sessions(agent_id, display_name)",
 ]
 
 # Migration: run once against existing DBs that predate the display_name column.

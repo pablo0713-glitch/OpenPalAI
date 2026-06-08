@@ -501,7 +501,7 @@ for r in results:
 }
 ```
 
-Command Center browser IDs (`command_user_*`) resolve to the canonical owner automatically. SL and Discord IDs are auto-linked when the incoming platform display name matches `OWNER_SL_NAME` or `OWNER_DISCORD_NAME`. Manual repair is still possible by editing `person_map.json`.
+Command Center browser IDs (`command_user_*`) resolve to the canonical owner automatically. SL/OpenSim and Discord identities are keyed by stable platform IDs (`sl_<uuid>` and `discord_<id>`). Owner auto-linking prefers `OWNER_SL_UUID` and `OWNER_DISCORD_ID`, with `OWNER_SL_NAME` and `OWNER_DISCORD_NAME` kept as display-name fallbacks. Manual repair is still possible by editing `person_map.json`.
 
 This identity map is used for curated memory paths, STM cross-platform bridging, vector namespaces, and consolidation targets.
 

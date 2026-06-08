@@ -56,7 +56,9 @@ class Settings:
     memory_dir: str
     notes_dir: str
     memory_max_history: int
+    owner_sl_uuid: str
     owner_sl_name: str
+    owner_discord_id: str
     owner_discord_name: str
 
     # Second Life
@@ -128,7 +130,9 @@ def load_settings() -> Settings:
         memory_dir=os.getenv("MEMORY_DIR", str(data_dir() / "memory")),
         notes_dir=os.getenv("NOTES_DIR", str(data_dir() / "notes")),
         memory_max_history=int(os.getenv("MEMORY_MAX_HISTORY", "20")),
+        owner_sl_uuid=os.getenv("OWNER_SL_UUID", ""),
         owner_sl_name=os.getenv("OWNER_SL_NAME", ""),
+        owner_discord_id=os.getenv("OWNER_DISCORD_ID", ""),
         owner_discord_name=os.getenv("OWNER_DISCORD_NAME", ""),
         sl_bridge_url=os.getenv("SL_BRIDGE_URL", ""),
         sl_trigger_names=[

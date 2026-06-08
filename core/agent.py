@@ -81,6 +81,14 @@ def _same_display_name(actual: str, expected: str) -> bool:
     return bool(actual.strip() and expected.strip() and actual.strip().casefold() == expected.strip().casefold())
 
 
+def _same_platform_user_id(actual: str, expected: str, prefix: str) -> bool:
+    expected = (expected or "").strip()
+    if not expected:
+        return False
+    normalized = expected[len(prefix):].strip() if expected.casefold().startswith(prefix.casefold()) else expected
+    return actual.casefold() == f"{prefix}{normalized}".casefold()
+
+
 def _get_role(turn: dict) -> str:
     return turn.get("role") if isinstance(turn, dict) else getattr(turn, "role", "")
 
@@ -268,8 +276,34 @@ class AgentCore:
             return
 
         if context.platform == "sl":
+            expected_uuid = str(getattr(self._settings, "owner_sl_uuid", "") or "").strip()
+            if _same_platform_user_id(context.user_id, expected_uuid, "sl_"):
+                linked = self._person_map.link_user_id(
+                    self._person_map.canonical_owner(),
+                    context.user_id,
+                )
+                if linked:
+                    logger.info(
+                        "Linked SL identity '%s' to canonical owner '%s' by stable avatar UUID",
+                        context.user_id,
+                        self._person_map.canonical_owner(),
+                    )
+                return
             expected_name = self._settings.owner_sl_name
         elif context.platform == "discord":
+            expected_id = str(getattr(self._settings, "owner_discord_id", "") or "").strip()
+            if _same_platform_user_id(context.user_id, expected_id, "discord_"):
+                linked = self._person_map.link_user_id(
+                    self._person_map.canonical_owner(),
+                    context.user_id,
+                )
+                if linked:
+                    logger.info(
+                        "Linked Discord identity '%s' to canonical owner '%s' by stable user ID",
+                        context.user_id,
+                        self._person_map.canonical_owner(),
+                    )
+                return
             expected_name = self._settings.owner_discord_name
         else:
             return

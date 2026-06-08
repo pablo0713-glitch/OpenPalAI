@@ -156,7 +156,9 @@ function defaultCompanion() {
 
 const state = {
   command_center_name: 'Command Center',
+  owner_sl_uuid: '',
   owner_sl_name: '',
+  owner_discord_id: '',
   owner_discord_name: '',
   companions: { aria: blankCompanion('aria', D.agent_name) },
   activeCompanionId: 'aria',
@@ -286,7 +288,9 @@ function applyConfig(config) {
   if (env.SEARCH_PROVIDER) state.search_provider = env.SEARCH_PROVIDER;
   if (env.SEARCH_API_KEY) state.search_api_key = env.SEARCH_API_KEY;
 
+  if (env.OWNER_SL_UUID)      state.owner_sl_uuid      = env.OWNER_SL_UUID;
   if (env.OWNER_SL_NAME)      state.owner_sl_name      = env.OWNER_SL_NAME;
+  if (env.OWNER_DISCORD_ID)   state.owner_discord_id   = env.OWNER_DISCORD_ID;
   if (env.OWNER_DISCORD_NAME) state.owner_discord_name = env.OWNER_DISCORD_NAME;
   if (typeof ag.command_center_name === 'string' && ag.command_center_name.trim()) {
     state.command_center_name = ag.command_center_name;
@@ -552,14 +556,24 @@ function buildStep1() {
       <p class="form-hint">Used as the persistent browser identity for command center chats and memory.</p>
     </div>
     <div class="form-group" style="margin-top:1.5rem">
+      <label for="f-owner-sl-uuid">Your SL/OpenSim Avatar UUID <span class="label-opt">(optional)</span></label>
+      <input type="text" id="f-owner-sl-uuid" class="form-input" value="${esc(state.owner_sl_uuid)}" placeholder="00000000-0000-0000-0000-000000000000" maxlength="64">
+      <p class="form-hint">Your stable avatar UUID. Used to link SL/OpenSim memory even if your display name changes.</p>
+    </div>
+    <div class="form-group">
       <label for="f-owner-sl-name">Your Second Life Name <span class="label-opt">(optional)</span></label>
       <input type="text" id="f-owner-sl-name" class="form-input" value="${esc(state.owner_sl_name)}" placeholder="e.g. YourAvatar Resident" maxlength="80">
-      <p class="form-hint">Your SL avatar name. Used in memory notes and in-world context.</p>
+      <p class="form-hint">Your SL/OpenSim avatar name. Used as a fallback link and in-world context.</p>
+    </div>
+    <div class="form-group">
+      <label for="f-owner-discord-id">Your Discord User ID <span class="label-opt">(optional)</span></label>
+      <input type="text" id="f-owner-discord-id" class="form-input" value="${esc(state.owner_discord_id)}" placeholder="123456789012345678" maxlength="32" inputmode="numeric">
+      <p class="form-hint">Your stable numeric Discord user ID. Used to link Discord memory even if your username changes.</p>
     </div>
     <div class="form-group">
       <label for="f-owner-discord-name">Your Discord Name <span class="label-opt">(optional)</span></label>
       <input type="text" id="f-owner-discord-name" class="form-input" value="${esc(state.owner_discord_name)}" placeholder="e.g. yourname" maxlength="80">
-      <p class="form-hint">Your Discord username. Used in memory notes and Discord context.</p>
+      <p class="form-hint">Your Discord username or display name. Used as a fallback link and in Discord context.</p>
     </div>`;
 }
 
@@ -619,7 +633,9 @@ function collectStep1() {
   ac().agent_name          = val('f-name') || ac().agent_name;
   ac().aliases             = val('f-aliases').split(',').map((a) => a.trim()).filter(Boolean);
   state.command_center_name = val('f-command-center-name') || 'Command Center';
+  state.owner_sl_uuid      = val('f-owner-sl-uuid').replace(/^sl_/i, '').trim();
   state.owner_sl_name      = val('f-owner-sl-name');
+  state.owner_discord_id   = val('f-owner-discord-id').replace(/^discord_/i, '').replace(/\D/g, '');
   state.owner_discord_name = val('f-owner-discord-name');
 }
 
@@ -1466,7 +1482,9 @@ async function save() {
       OPENSIM_ENABLED:             state.opensim_enabled ? 'true' : 'false',
       SEARCH_PROVIDER:             state.search_provider,
       SEARCH_API_KEY:              state.search_api_key,
+      OWNER_SL_UUID:               state.owner_sl_uuid,
       OWNER_SL_NAME:               state.owner_sl_name,
+      OWNER_DISCORD_ID:            state.owner_discord_id,
       OWNER_DISCORD_NAME:          state.owner_discord_name,
     },
     agent_config: {

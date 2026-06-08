@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from config.settings import Settings
 from core.agent import AgentCore
-from core.persona import MessageContext
+from core.persona import MessageContext, resolve_platform_agent_id
 from interfaces.sl_bot.sl_protocol import IncomingIM, SLProtocol, sl_login
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,7 @@ class SLBotClient:
             user_id=f"sl_{im.from_agent_id}",
             channel_id=f"sl_im_{im.from_agent_id}",
             display_name=im.from_name,
+            agent_id=resolve_platform_agent_id("sl"),
             sl_region=self._login_result.region_name if self._login_result else "",
         )
 

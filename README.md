@@ -692,8 +692,10 @@ All configuration lives in `.env` (created by the wizard). Reference:
 | `SEARCH_PROVIDER` | If web search enabled | `brave` or `serper` |
 | `SEARCH_API_KEY` | If web search enabled | Brave or Serper API key |
 | `MEMORY_MAX_HISTORY` | No | Turns kept per conversation file (default: 20) |
-| `OWNER_SL_NAME` | No | Your Second Life name — used to auto-link SL identity to the Command Center root |
-| `OWNER_DISCORD_NAME` | No | Your Discord display name — used to auto-link Discord identity to the Command Center root |
+| `OWNER_SL_UUID` | No | Your SL/OpenSim avatar UUID — preferred for stable identity linking |
+| `OWNER_SL_NAME` | No | Your Second Life/OpenSimulator display name — fallback for auto-linking SL identity to the Command Center root |
+| `OWNER_DISCORD_ID` | No | Your numeric Discord user ID — preferred for stable Discord identity linking |
+| `OWNER_DISCORD_NAME` | No | Your Discord display name — fallback for auto-linking Discord identity to the Command Center root |
 | `IMPORTANCE_THRESHOLD` | No | Minimum importance score for long-term memory (default: 0.4) |
 | `IMPORTANCE_SCORE_BATCH_SIZE` | No | Turns scored per curator API call (default: 20) |
 | `LIBRARY_DIR` | No | Path to library modules directory (default: `./data/library`) |

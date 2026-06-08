@@ -712,7 +712,7 @@ I'm always happy to help — whether you're stuck on setup, hit a bug, or just h
 | **Second Life** | Drop a notecard to **StonedGrits** — IMs can get capped and lost, so a notecard is the safest way to reach me in-world |
 | **X** | **@waywardisopod** |
 | **Email** | pablo071372@outlook.com |
-| **GitHub** | [pablo0713-glitch](https://github.com/pablo0713-glitch) — open an issue for bugs or feature requests |
+| **GitHub** | [pablo0713-glitch](https://github.com/pablo0713-glitch/OpenPalAI) — open an issue for bugs or feature requests |
 
 ---
 

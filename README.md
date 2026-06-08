@@ -9,6 +9,8 @@ OpenPalAI is DIY software: free to use, fork, modify, self-host, and experiment 
 
 For 24/7 hosting, see the Cloud Deployment & Persistence Guide.
 
+**THIS PLATFORM IS CURRENTLY IN BETA & IN ACTIVE DEVELOPMENT. PLEASE HELP BY SUBMITTING AN ISSUE, SUGGESTION, OR FEEDBACK! IT IS MUCH APPRECIATED!**
+
 ---
 
 ## What Your Agent Can Do

@@ -25,7 +25,7 @@ class OpenPalAIBot(discord.Client):
 
     async def on_message(self, message: discord.Message) -> None:
         # Never respond to ourselves
-        if message.author == self.user:
+        if self.user is not None and message.author.id == self.user.id:
             return
 
         # Guild restrictions
